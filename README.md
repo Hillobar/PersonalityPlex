@@ -22,6 +22,13 @@ Download this repository and install with:
 pip install moshi/.
 ```
 
+### Accept Model License
+Log in to your Huggingface account and accept the PersonaPlex model license [here](https://huggingface.co/nvidia/personaplex-7b-v1). <br>
+Then set up your Huggingface authentication:
+```bash
+export HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN>
+```
+
 ### Launch Server
 
 Launch server for live interaction (temporary SSL certs for https):
