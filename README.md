@@ -1,7 +1,7 @@
 # PersonaPlex: Voice and Role Control for Full Duplex Conversational Speech Models
 
 [![Weights](https://img.shields.io/badge/🤗-Weights-yellow)](https://huggingface.co/nvidia/personaplex-7b-v1)
-[![Paper](https://img.shields.io/badge/📄-Paper-blue)](PAPER_LINK)
+[![Paper](https://img.shields.io/badge/📄-Paper-blue)](https://research.nvidia.com/labs/adlr/files/personaplex/personaplex_preprint.pdf)
 [![Demo](https://img.shields.io/badge/🎮-Demo-green)](https://research.nvidia.com/labs/adlr/personaplex/)
 [![Discord](https://img.shields.io/badge/Discord-Join-purple?logo=discord)](https://discord.gg/ZrkX72mp)
 
@@ -138,4 +138,11 @@ The present code is provided under the MIT license. The weights for the models a
 
 ## Citation
 
-`TBD`
+If you use PersonaPlex in your research, please cite our paper:
+```bibtex
+@article{roy2026personaplex,
+  title={PersonaPlex: Voice and Role Control for Full Duplex Conversational Speech Models},
+  author={Roy, Rajarshi and Raiman, Jonathan and Lee, Sang-gil and Ene, Teodor-Dumitru and Kirby, Robert and Kim, Sungwon and Kim, Jaehyeon and Catanzaro, Bryan},
+  year={2026}
+}
+```
