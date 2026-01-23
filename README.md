@@ -56,6 +56,11 @@ Launch server for live interaction (temporary SSL certs for https):
 SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR"
 ```
 
+**CPU Offload:** If your GPU has insufficient memory, use the `--cpu-offload` flag to offload model layers to CPU. This requires the `accelerate` package (`pip install accelerate`):
+```bash
+SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR" --cpu-offload
+```
+
 Access the Web UI from a browser at `localhost:8998` if running locally, otherwise look for the access link printed by the script:
 ```
 Access the Web UI directly at https://11.54.401.33:8998
@@ -64,6 +69,8 @@ Access the Web UI directly at https://11.54.401.33:8998
 ### Offline Evaluation
 
 For offline evaluation use the offline script that streams in an input wav file and produces an output wav file from the captured output stream. The output file will be the same duration as the input file.
+
+Add `--cpu-offload` to any command below if your GPU has insufficient memory (requires `accelerate` package).
 
 **Assistant example:**
 ```bash
