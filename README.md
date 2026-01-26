@@ -39,9 +39,13 @@ Download this repository and set up the environment:
 conda create -n personaplex python=3.10 -y
 conda activate personaplex
 
-# Install the moshi package
-pip install moshi/.
+# Install the moshi package in editable mode (for development)
+cd moshi
+pip install -e .
+cd ..
 ```
+
+**Note:** Use `pip install -e .` (editable mode) during development so code changes are immediately reflected without reinstalling.
 
 #### Option 2: For Blackwell GPUs (RTX 50 series)
 Blackwell GPUs require PyTorch with CUDA 12.8. Install PyTorch first, then the moshi package:
@@ -94,6 +98,11 @@ Launch server for live interaction (temporary SSL certs for https):
 SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR"
 ```
 
+**For Development:** If you've modified the frontend (client/ directory), use the `--static` flag to serve your local build:
+```bash
+SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR" --static client/dist
+```
+
 **CPU Offload:** If your GPU has insufficient memory, use the `--cpu-offload` flag to offload model layers to CPU. This requires the `accelerate` package (`pip install accelerate`):
 ```bash
 SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR" --cpu-offload
@@ -143,7 +152,9 @@ Variety(male):   VARM0, VARM1, VARM2, VARM3, VARM4
 
 ### Custom Voices
 
-You can create custom voice embeddings from your own audio recordings:
+PersonaPlex supports **dynamic custom voice loading** - add new voices and they automatically appear in the Web UI without code changes!
+
+#### Quick Start
 
 **Step 1: Prepare your audio file**
 
@@ -171,14 +182,55 @@ python -m moshi.offline \
   --output-text "/tmp/test_output.json"
 ```
 
-This creates `my_voice.pt` in the voices directory. You can now use it with the server or offline mode:
-```bash
-# With the server (select from dropdown in Web UI)
-python -m moshi.server --ssl "$SSL_DIR"
+This creates `my_voice.pt` in the voices directory.
 
-# With offline mode
+**Step 4: Use your custom voice**
+
+**With the Web UI:** Restart the server and your custom voice automatically appears in the voice dropdown! Custom voices appear first in the list.
+```bash
+SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR"
+```
+
+**With offline mode:** Use the `.pt` file directly:
+```bash
 python -m moshi.offline --voice-prompt "my_voice.pt" ...
 ```
+
+#### Custom Voices Directory
+
+For easier management, you can place custom voices in the `custom_voices/` directory:
+
+```bash
+# Create your custom voices directory (if it doesn't exist)
+mkdir -p custom_voices
+
+# Place voice files here
+cp my_voice.wav custom_voices/
+# Generate embeddings...
+# The generated my_voice.pt will appear in the Web UI!
+```
+
+**Configure custom location (optional):**
+```bash
+# In .env file
+CUSTOM_VOICE_DIR=/path/to/my/voices
+```
+
+#### Voice File Formats
+
+- **`.pt` files**: Voice embeddings - these are the actual selectable voices in the Web UI
+- **`.wav` files**: Source audio (24kHz mono) - used only to GENERATE the `.pt` embeddings
+
+**Important:** Only `.pt` files appear in the voice selector dropdown. The `.wav` files are intermediate source files used during voice generation.
+
+#### API Access
+
+List all available voices programmatically:
+```bash
+curl http://localhost:8998/api/voices
+```
+
+Returns JSON with all voices, their types, and categories.
 
 ## Prompting Guide
 
@@ -233,6 +285,14 @@ Personaplex finetunes Moshi and benefits from the generalization capabilities of
 ```
 You enjoy having a good conversation. Have a technical discussion about fixing a reactor core on a spaceship to Mars. You are an astronaut on a Mars mission. Your name is Alex. You are already dealing with a reactor core meltdown on a Mars mission. Several ship systems are failing, and continued instability will lead to catastrophic failure. You explain what is happening and you urgently ask for help thinking through how to stabilize the reactor.
 ```
+
+## Troubleshooting
+
+For common issues and solutions, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md), including:
+- Code changes not reflected when running server (editable install issue)
+- Custom voices not appearing in Web UI
+- Frontend build and development issues
+- Environment and dependency problems
 
 ## License
 

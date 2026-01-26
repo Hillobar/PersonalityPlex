@@ -193,3 +193,9 @@ Claude.local.md
 .agent/
 .DS_Store
 Thumbs.db
+
+# Custom voice files (keep directory structure in git, ignore voice files)
+custom_voices/*.pt
+custom_voices/*.wav
+# But keep the README
+!custom_voices/README.md
