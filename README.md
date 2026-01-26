@@ -61,16 +61,36 @@ See https://github.com/NVIDIA/personaplex/issues/2 for more details on Blackwell
 
 
 ### Accept Model License
-Log in to your Huggingface account and accept the PersonaPlex model license [here](https://huggingface.co/nvidia/personaplex-7b-v1). <br>
-Then set up your Huggingface authentication:
+
+Log in to your Huggingface account and accept the PersonaPlex model license [here](https://huggingface.co/nvidia/personaplex-7b-v1).
+
+Then set up your Huggingface authentication using one of these methods:
+
+**Option 1: Using .env file (Recommended)**
+```bash
+# Copy the template and add your token
+cp .env.example .env
+# Edit .env and replace 'your_token_here' with your actual token
+```
+
+**Option 2: Environment variable**
 ```bash
 export HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN>
 ```
+
+**Option 3: Hugging Face CLI**
+```bash
+pip install huggingface_hub
+huggingface-cli login
+```
+
+**Note:** The .env file is optional. All existing workflows continue to work.
 
 ### Launch Server
 
 Launch server for live interaction (temporary SSL certs for https):
 ```bash
+# The server automatically loads your HF_TOKEN from the .env file
 SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR"
 ```
 
@@ -92,7 +112,6 @@ Add `--cpu-offload` to any command below if your GPU has insufficient memory (re
 
 **Assistant example:**
 ```bash
-HF_TOKEN=<TOKEN> \
 python -m moshi.offline \
   --voice-prompt "NATF2.pt" \
   --input-wav "assets/test/input_assistant.wav" \
@@ -103,7 +122,6 @@ python -m moshi.offline \
 
 **Service example:**
 ```bash
-HF_TOKEN=<TOKEN> \
 python -m moshi.offline \
   --voice-prompt "NATM1.pt" \
   --text-prompt "$(cat assets/test/prompt_service.txt)" \

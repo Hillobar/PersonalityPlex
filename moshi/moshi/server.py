@@ -44,6 +44,10 @@ import sentencepiece
 import sphn
 import torch
 import random
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from .client_utils import make_log, colorize
 from .models import loaders, MimiModel, LMModel, LMGen
@@ -392,6 +396,16 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Warn if .env exists but HF_TOKEN is not set
+    env_file = Path(__file__).parent.parent.parent / ".env"
+    if env_file.exists() and not os.getenv("HF_TOKEN"):
+        logger.warning(
+            "Found .env file but HF_TOKEN is not set. "
+            "Models requiring authentication may fail to download. "
+            "See .env.example for configuration details."
+        )
+
     args.voice_prompt_dir = _get_voice_prompt_dir(
         args.voice_prompt_dir,
         args.hf_repo,

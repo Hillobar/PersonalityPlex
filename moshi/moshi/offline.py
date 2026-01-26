@@ -51,6 +51,10 @@ import torch
 import sentencepiece
 import sphn
 from huggingface_hub import hf_hub_download
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from .client_utils import make_log
 from .models import loaders, LMGen, MimiModel
@@ -387,6 +391,14 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Warn if .env exists but HF_TOKEN is not set
+    env_file = Path(__file__).parent.parent.parent / ".env"
+    if env_file.exists() and not os.getenv("HF_TOKEN"):
+        log("warning",
+            "Found .env file but HF_TOKEN is not set. "
+            "Models requiring authentication may fail to download. "
+            "See .env.example for configuration details.")
 
     # If --voice-prompt-dir is omitted, voices.tgz is downloaded from HF and extracted.
     voice_prompt_dir = _get_voice_prompt_dir(
