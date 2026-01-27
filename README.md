@@ -92,6 +92,7 @@ pip install huggingface_hub
 huggingface-cli login
 ```
 
+
 ### Launch Server
 
 **IMPORTANT: First activate the conda environment:**
@@ -135,6 +136,7 @@ SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR" --static client/di
 # Disable static serving entirely
 SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR" --static none
 ```
+
 
 **CPU Offload:** If your GPU has insufficient memory, use the `--cpu-offload` flag to offload model layers to CPU. This requires the `accelerate` package (`pip install accelerate`):
 ```bash
