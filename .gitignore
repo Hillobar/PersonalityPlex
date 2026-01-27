@@ -184,16 +184,6 @@ mlx-trace.json
 !assets/
 !assets/**
 
-
-# Claude Code local settings (added by init-team-ai)
-.claude/
-*.local.json
-Agents.md
-Claude.local.md
-.agent/
-.DS_Store
-Thumbs.db
-
 # Custom voice files (keep directory structure in git, ignore voice files)
 custom_voices/*.pt
 custom_voices/*.wav
