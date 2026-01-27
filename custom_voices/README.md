@@ -39,7 +39,14 @@ By default, PersonaPlex looks for voices in:
 1. HuggingFace cache: `~/.cache/huggingface/hub/models--nvidia--personaplex-7b-v1/snapshots/*/voices/`
 2. Custom directory: `./custom_voices/` (this directory)
 
-To use a different custom voices directory, set the `CUSTOM_VOICE_DIR` environment variable:
+To use a different custom voices directory:
+
+Add to your `.env` file (recommended):
+```bash
+CUSTOM_VOICE_DIR=/path/to/my/voices
+```
+
+Or use environment variable:
 ```bash
 export CUSTOM_VOICE_DIR=/path/to/my/voices
 ```

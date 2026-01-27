@@ -47,8 +47,15 @@ cd ..
 
 ### Step 3: Set Up Hugging Face Token
 
+**Recommended: Use .env file (persists across sessions)**
 ```bash
-# Set your Hugging Face token as an environment variable
+# Copy the template and add your token
+cp .env.example .env
+# Edit .env and replace 'your_token_here' with your actual Hugging Face token
+```
+
+**Alternative: Use export (temporary, only for current session)**
+```bash
 export HF_TOKEN=your_token_here
 ```
 
@@ -106,7 +113,7 @@ SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR"
 - Solution: Activate the conda environment: `conda activate personaplex`
 
 **Error: "Access denied" when downloading model**
-- Solution: Accept the model license and set your HF token: `export HF_TOKEN=your_token_here`
+- Solution: Accept the model license and set up your HF token in `.env` file (see Step 3)
 
 For more issues, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 

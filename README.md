@@ -74,12 +74,19 @@ Log in to your Huggingface account and accept the PersonaPlex model license [her
 
 Then set up your Huggingface authentication using one of these methods:
 
-**Option 1: Environment variable**
+**Option 1: .env file (Recommended)**
+```bash
+# Copy the template and add your token
+cp .env.example .env
+# Edit .env and replace 'your_token_here' with your actual token
+```
+
+**Option 2: Environment variable**
 ```bash
 export HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN>
 ```
 
-**Option 2: Hugging Face CLI**
+**Option 3: Hugging Face CLI**
 ```bash
 pip install huggingface_hub
 huggingface-cli login
@@ -237,8 +244,14 @@ cp my_voice.wav custom_voices/
 ```
 
 **Configure custom location (optional):**
+
+Preferred method - add to your `.env` file:
 ```bash
-# Set environment variable
+CUSTOM_VOICE_DIR=/path/to/my/voices
+```
+
+Or use environment variable (temporary):
+```bash
 export CUSTOM_VOICE_DIR=/path/to/my/voices
 ```
 

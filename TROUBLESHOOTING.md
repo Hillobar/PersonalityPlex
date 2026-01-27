@@ -214,11 +214,16 @@ If you modified React components but don't see changes:
 
 If models fail to download:
 
-1. Set your HuggingFace token as an environment variable:
+1. Create a `.env` file in the repository root:
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your token: HF_TOKEN=your_token_here
+   ```
+2. Or set environment variable:
    ```bash
    export HF_TOKEN=your_token_here
    ```
-2. Or use the Hugging Face CLI:
+3. Or use the Hugging Face CLI:
    ```bash
    pip install huggingface_hub
    huggingface-cli login
