@@ -25,14 +25,14 @@ class VoiceDiscovery:
         hf_voices = Path(hf_cache) / 'hub'
 
         # Find personaplex model snapshot
-        for model_dir in hf_voices.glob('models--nvidia--personaplex-7b-v1/snapshots/*'):
-            voices_dir = model_dir / 'voices'
-            if voices_dir.exists():
-                dirs.append(voices_dir)
+        # for model_dir in hf_voices.glob('models--nvidia--personaplex-7b-v1/snapshots/*'):
+            # voices_dir = model_dir / 'voices'
+            # if voices_dir.exists():
+                # dirs.append(voices_dir)
 
         # 2. Custom voices directory (from .env or default)
-        custom_dir = os.environ.get('CUSTOM_VOICE_DIR', './custom_voices')
-        custom_path = Path(custom_dir)
+
+        custom_path = Path.cwd() / 'custom_voices'
         if custom_path.exists():
             dirs.append(custom_path)
 

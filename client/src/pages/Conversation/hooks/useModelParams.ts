@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {useLocalStorage} from './useLocalStorage';
 
 export const DEFAULT_TEXT_TEMPERATURE = 0.7;
@@ -7,9 +7,9 @@ export const DEFAULT_AUDIO_TEMPERATURE = 0.8;
 export const DEFAULT_AUDIO_TOPK = 250;
 export const DEFAULT_PAD_MULT = 0;
 export const DEFAULT_REPETITION_PENALTY_CONTEXT = 64;
-export const DEFAULT_REPETITION_PENALTY = 1.0;
-export const DEFAULT_TEXT_PROMPT = "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.";
-export const DEFAULT_VOICE_PROMPT = "NATF0.pt";
+export const DEFAULT_REPETITION_PENALTY = 2.0; 
+export const DEFAULT_TEXT_PROMPT = "You enjoy having a good conversation.";
+export const DEFAULT_VOICE_PROMPT = "c_c.pt";
 export const DEFAULT_RANDOM_SEED = -1;
 
 export type ModelParamsValues = {
@@ -39,6 +39,14 @@ export const useModelParams = (params?:useModelParamsArgs) => {
   const [textPrompt, setTextPromptBase] = useState(params?.textPrompt || DEFAULT_TEXT_PROMPT);
   const [voicePrompt, setVoicePromptBase] = useState(params?.voicePrompt || DEFAULT_VOICE_PROMPT);
   const [randomSeed, setRandomSeedBase] = useLocalStorage('randomSeed', params?.randomSeed || DEFAULT_RANDOM_SEED);
+
+  // Sync internal state when parent props change (e.g. Queue → Conversation)
+  useEffect(() => { if (params?.textPrompt !== undefined) setTextPromptBase(params.textPrompt); }, [params?.textPrompt]);
+  useEffect(() => { if (params?.voicePrompt !== undefined) setVoicePromptBase(params.voicePrompt); }, [params?.voicePrompt]);
+  useEffect(() => { if (params?.textTemperature !== undefined) setTextTemperatureBase(params.textTemperature); }, [params?.textTemperature]);
+  useEffect(() => { if (params?.textTopk !== undefined) setTextTopkBase(params.textTopk); }, [params?.textTopk]);
+  useEffect(() => { if (params?.audioTemperature !== undefined) setAudioTemperatureBase(params.audioTemperature); }, [params?.audioTemperature]);
+  useEffect(() => { if (params?.audioTopk !== undefined) setAudioTopkBase(params.audioTopk); }, [params?.audioTopk]);
 
   const resetParams = useCallback(() => {
     setTextTemperatureBase(DEFAULT_TEXT_TEMPERATURE);

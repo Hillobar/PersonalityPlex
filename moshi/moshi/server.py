@@ -27,6 +27,7 @@
 import argparse
 import asyncio
 from dataclasses import dataclass
+import json
 import random
 import os
 from pathlib import Path
@@ -94,20 +95,21 @@ def wrap_with_system_tags(text: str) -> str:
 @dataclass
 class ServerState:
     mimi: MimiModel
-    other_mimi: MimiModel
     text_tokenizer: sentencepiece.SentencePieceProcessor
     lm_gen: LMGen
     lock: asyncio.Lock
 
-    def __init__(self, mimi: MimiModel, other_mimi: MimiModel, text_tokenizer: sentencepiece.SentencePieceProcessor,
+    def __init__(self, mimi: MimiModel, text_tokenizer: sentencepiece.SentencePieceProcessor,
                  lm: LMModel, device: str | torch.device, voice_prompt_dir: str | None = None,
                  save_voice_prompt_embeddings: bool = False):
         self.mimi = mimi
-        self.other_mimi = other_mimi
         self.text_tokenizer = text_tokenizer
         self.device = device
         self.voice_prompt_dir = voice_prompt_dir
         self.frame_size = int(self.mimi.sample_rate / self.mimi.frame_rate)
+        self.device = device
+        self.save_voice_prompt_embeddings = save_voice_prompt_embeddings
+        self.lm = lm
         self.lm_gen = LMGen(lm,
                             audio_silence_frame_cnt=int(0.5 * self.mimi.frame_rate),
                             sample_rate=self.mimi.sample_rate,
@@ -118,20 +120,17 @@ class ServerState:
         
         self.lock = asyncio.Lock()
         self.mimi.streaming_forever(1)
-        self.other_mimi.streaming_forever(1)
         self.lm_gen.streaming_forever(1)
     
     def warmup(self):
         for _ in range(4):
             chunk = torch.zeros(1, 1, self.frame_size, dtype=torch.float32, device=self.device)
             codes = self.mimi.encode(chunk)
-            _ = self.other_mimi.encode(chunk)
             for c in range(codes.shape[-1]):
                 tokens = self.lm_gen.step(codes[:, :, c: c + 1])
                 if tokens is None:
                     continue
                 _ = self.mimi.decode(tokens[:, 1:9])
-                _ = self.other_mimi.decode(tokens[:, 1:9])
 
         if self.device.type == 'cuda':
             torch.cuda.synchronize()
@@ -150,6 +149,11 @@ class ServerState:
         # self.lm_gen.top_k_text = max(1, int(request.query["text_topk"]))
         # self.lm_gen.top_k = max(1, int(request.query["audio_topk"]))
         
+        # # This will allow audio temp and topk to be applied since htey are applied during init of LMGEN
+        # self.lm_gen._stop_streaming()
+        # self.lm_gen.streaming_forever(1)
+
+ 
         # Construct full voice prompt path
         requested_voice_prompt_path = None
         voice_prompt_path = None
@@ -200,6 +204,26 @@ class ServerState:
                     if kind == 1:  # audio
                         payload = message[1:]
                         opus_reader.append_bytes(payload)
+                    elif kind == 4:  # metadata (param update)
+                        import json as _json
+                        try:
+                            payload = message[1:]
+                            params = _json.loads(payload.decode("utf-8"))
+                            if "text_temperature" in params:
+                                self.lm_gen.temp_text = float(params["text_temperature"])
+                            if "text_topk" in params:
+                                self.lm_gen.top_k_text = max(1, int(params["text_topk"]))
+                            if "audio_temperature" in params:
+                                self.lm_gen.temp = float(params["audio_temperature"])
+                                self.lm_gen._stop_streaming()
+                                self.lm_gen.streaming_forever(1)
+                            if "audio_topk" in params:
+                                self.lm_gen.top_k = max(1, int(params["audio_topk"]))
+                                self.lm_gen._stop_streaming()
+                                self.lm_gen.streaming_forever(1)
+                            clog.log("info", f"updated params: {params}")
+                        except Exception as e:
+                            clog.log("error", f"failed to parse metadata: {e}")
                     else:
                         clog.log("warning", f"unknown message kind {kind}")
             finally:
@@ -227,14 +251,12 @@ class ServerState:
                     chunk = torch.from_numpy(chunk)
                     chunk = chunk.to(device=self.device)[None, None]
                     codes = self.mimi.encode(chunk)
-                    _ = self.other_mimi.encode(chunk)
                     for c in range(codes.shape[-1]):
                         tokens = self.lm_gen.step(codes[:, :, c: c + 1])
                         if tokens is None:
                             continue
                         assert tokens.shape[1] == self.lm_gen.lm_model.dep_q + 1
                         main_pcm = self.mimi.decode(tokens[:, 1:9])
-                        _ = self.other_mimi.decode(tokens[:, 1:9])
                         main_pcm = main_pcm.cpu()
                         opus_writer.append_pcm(main_pcm[0, 0].numpy())
                         text_token = tokens[0, 0, 0].item()
@@ -268,7 +290,6 @@ class ServerState:
             opus_writer = sphn.OpusStreamWriter(self.mimi.sample_rate)
             opus_reader = sphn.OpusStreamReader(self.mimi.sample_rate)
             self.mimi.reset_streaming()
-            self.other_mimi.reset_streaming()
             self.lm_gen.reset_streaming()
             async def is_alive():
                 if close or ws.closed:
@@ -312,6 +333,47 @@ class ServerState:
                 # await asyncio.gather(opus_loop(), recv_loop(), send_loop())
         clog.log("info", "done with connection")
         return ws
+
+    async def handle_list_personalities(self, request):
+        """List all saved personalities from the Personalities folder."""
+        personalities_dir = Path.cwd() / "Personalities"
+        personalities_dir.mkdir(exist_ok=True)
+        personalities = []
+        for f in sorted(personalities_dir.glob("*.json")):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                personalities.append(data)
+            except Exception as e:
+                logger.warning(f"Failed to read personality {f}: {e}")
+        return web.json_response(personalities)
+
+    async def handle_save_personality(self, request):
+        """Save or update a personality to the Personalities folder."""
+        personalities_dir = Path.cwd() / "Personalities"
+        personalities_dir.mkdir(exist_ok=True)
+        try:
+            data = await request.json()
+            pid = data.get("id")
+            if not pid:
+                return web.json_response({"error": "missing id"}, status=400)
+            filepath = personalities_dir / f"{pid}.json"
+            filepath.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            return web.json_response({"status": "ok"})
+        except Exception as e:
+            logger.error(f"Error saving personality: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_delete_personality(self, request):
+        """Delete a personality from the Personalities folder."""
+        personalities_dir = Path.cwd() / "Personalities"
+        pid = request.match_info.get("id")
+        if not pid:
+            return web.json_response({"error": "missing id"}, status=400)
+        filepath = personalities_dir / f"{pid}.json"
+        if filepath.exists():
+            filepath.unlink()
+            return web.json_response({"status": "ok"})
+        return web.json_response({"error": "not found"}, status=404)
 
     async def handle_list_voices(self, request):
         """List all available voices from configured directories."""
@@ -464,10 +526,8 @@ def main():
             "See .env.example for configuration details."
         )
 
-    args.voice_prompt_dir = _get_voice_prompt_dir(
-        args.voice_prompt_dir,
-        args.hf_repo,
-    )
+    args.voice_prompt_dir = Path.cwd() / 'custom_voices'
+    
     if args.voice_prompt_dir is not None:
         assert os.path.exists(args.voice_prompt_dir), \
             f"Directory missing: {args.voice_prompt_dir}"
@@ -501,25 +561,19 @@ def main():
     hf_hub_download(args.hf_repo, "config.json")
 
     logger.info("loading mimi")
-    if args.mimi_weight is None:
-        args.mimi_weight = hf_hub_download(args.hf_repo, loaders.MIMI_NAME)
-    mimi = loaders.get_mimi(args.mimi_weight, args.device)
-    other_mimi = loaders.get_mimi(args.mimi_weight, args.device)
+    mimi = loaders.get_mimi("F:\\!PATHS\\Moshi\\Mimi\\" + loaders.MIMI_NAME, args.device)
     logger.info("mimi loaded")
-
-    if args.tokenizer is None:
-        args.tokenizer = hf_hub_download(args.hf_repo, loaders.TEXT_TOKENIZER_NAME)
-    text_tokenizer = sentencepiece.SentencePieceProcessor(args.tokenizer)  # type: ignore
+    
+    logger.info("loading tokenizer")
+    text_tokenizer = sentencepiece.SentencePieceProcessor("F:\\!PATHS\\Moshi\\Text_tokenizer\\" + loaders.TEXT_TOKENIZER_NAME)  # type: ignore
+    logger.info("tokenizer loaded")
 
     logger.info("loading moshi")
-    if args.moshi_weight is None:
-        args.moshi_weight = hf_hub_download(args.hf_repo, loaders.MOSHI_NAME)
-    lm = loaders.get_moshi_lm(args.moshi_weight, device=args.device, cpu_offload=args.cpu_offload)
+    lm = loaders.get_moshi_lm("F:\\!PATHS\\Moshi\\Moshi\\" + loaders.MOSHI_NAME, device=args.device, cpu_offload=args.cpu_offload)
     lm.eval()
     logger.info("moshi loaded")
     state = ServerState(
         mimi=mimi,
-        other_mimi=other_mimi,
         text_tokenizer=text_tokenizer,
         lm=lm,
         device=args.device,
@@ -537,6 +591,9 @@ def main():
     app.router.add_get("/api/test", test_endpoint)
     app.router.add_get("/api/chat", state.handle_chat)
     app.router.add_get("/api/voices", state.handle_list_voices)
+    app.router.add_get("/api/personalities", state.handle_list_personalities)
+    app.router.add_post("/api/personalities", state.handle_save_personality)
+    app.router.add_delete("/api/personalities/{id}", state.handle_delete_personality)
 
     # Debug: log registered routes
     logger.info(f"Registered routes so far: {[r.resource.canonical for r in app.router.routes()]}")

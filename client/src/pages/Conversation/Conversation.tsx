@@ -25,6 +25,7 @@ type ConversationProps = {
   worklet: MutableRefObject<AudioWorkletNode|null>;
   onConversationEnd?: () => void;
   isBypass?: boolean;
+  isActive: boolean;
   startConnection: () => Promise<void>;
 } & Partial<ModelParamsValues>;
 
@@ -60,10 +61,6 @@ const buildURL = ({
   if(email) {
     url.searchParams.append("email", email);
   }
-  url.searchParams.append("text_temperature", params.textTemperature.toString());
-  url.searchParams.append("text_topk", params.textTopk.toString());
-  url.searchParams.append("audio_temperature", params.audioTemperature.toString());
-  url.searchParams.append("audio_topk", params.audioTopk.toString());
   url.searchParams.append("pad_mult", params.padMult.toString());
   url.searchParams.append("text_seed", textSeed.toString());
   url.searchParams.append("audio_seed", audioSeed.toString());
@@ -86,6 +83,7 @@ export const Conversation:FC<ConversationProps> = ({
   onConversationEnd,
   startConnection,
   isBypass=false,
+  isActive,
   email,
   theme,
   ...params
@@ -101,10 +99,21 @@ export const Conversation:FC<ConversationProps> = ({
   const isRecording = useRef<boolean>(false);
   const audioChunks = useRef<Blob[]>([]);
 
-  const audioStreamDestination = useRef<MediaStreamAudioDestinationNode>(audioContext.current!.createMediaStreamDestination());
-  const stereoMerger = useRef<ChannelMergerNode>(audioContext.current!.createChannelMerger(2));
-  const audioRecorder = useRef<MediaRecorder>(new MediaRecorder(audioStreamDestination.current.stream, { mimeType: getMimeType("audio"), audioBitsPerSecond: 128000  }));
+  const audioStreamDestination = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const stereoMerger = useRef<ChannelMergerNode | null>(null);
+  const audioRecorder = useRef<MediaRecorder | null>(null);
   const [audioURL, setAudioURL] = useState<string>("");
+
+  // Lazy-initialize audio recording infrastructure when audioContext becomes available
+  useEffect(() => {
+    if (!audioContext.current || audioStreamDestination.current) return;
+    audioStreamDestination.current = audioContext.current.createMediaStreamDestination();
+    stereoMerger.current = audioContext.current.createChannelMerger(2);
+    audioRecorder.current = new MediaRecorder(
+      audioStreamDestination.current.stream,
+      { mimeType: getMimeType("audio"), audioBitsPerSecond: 128000 }
+    );
+  }, [isActive]);
   const [isOver, setIsOver] = useState(false);
   const modelParams = useModelParams(params);
   const micDuration = useRef<number>(0);
@@ -134,6 +143,7 @@ export const Conversation:FC<ConversationProps> = ({
     onDisconnect,
   });
   useEffect(() => {
+    if (!audioRecorder.current) return;
     audioRecorder.current.ondataavailable = (e) => {
       audioChunks.current.push(e.data);
     };
@@ -149,18 +159,20 @@ export const Conversation:FC<ConversationProps> = ({
       audioChunks.current = [];
       console.log("Audio Recording and encoding finished");
     };
-  }, [audioRecorder, setAudioURL, audioChunks]);
+  }, [isActive]);
 
 
   useEffect(() => {
-    start();
+    if (isActive) {
+      start();
+    }
     return () => {
       stop();
     };
-  }, [start, workerAuthId]);
+  }, [isActive]);
 
   const startRecording = useCallback(() => {
-    if(isRecording.current) {
+    if(isRecording.current || !stereoMerger.current || !audioStreamDestination.current || !audioRecorder.current) {
       return;
     }
     console.log(Date.now() % 1000, "Starting recording");
@@ -185,7 +197,7 @@ export const Conversation:FC<ConversationProps> = ({
   const stopRecording = useCallback(() => {
     console.log("Stopping recording");
     console.log("isRecording", isRecording)
-    if(!isRecording.current) {
+    if(!isRecording.current || !stereoMerger.current || !audioStreamDestination.current || !audioRecorder.current) {
       return;
     }
     try {
@@ -198,18 +210,12 @@ export const Conversation:FC<ConversationProps> = ({
     isRecording.current = false;
   }, [isRecording, worklet, audioStreamDestination, audioRecorder, stereoMerger]);
 
-  const onPressConnect = useCallback(async () => {
-      if (isOver) {
-        window.location.reload();
-      } else {
-        audioContext.current?.resume();
-        if (socketStatus !== "connected") {
-          start();
-        } else {
-          stop();
-        }
-      }
-    }, [socketStatus, isOver, start, stop]);
+  // Notify parent when conversation ends
+  useEffect(() => {
+    if (isOver && onConversationEnd) {
+      onConversationEnd();
+    }
+  }, [isOver, onConversationEnd]);
 
   const socketColor = useMemo(() => {
     if (socketStatus === "connected") {
@@ -221,17 +227,6 @@ export const Conversation:FC<ConversationProps> = ({
     }
   }, [socketStatus]);
 
-  const socketButtonMsg = useMemo(() => {
-    if (isOver) {
-      return 'New Conversation';
-    }
-    if (socketStatus === "connected") {
-      return 'Disconnect';
-    } else {
-      return 'Connecting...';
-    }
-  }, [isOver, socketStatus]);
-
   return (
     <SocketContext.Provider
       value={{
@@ -241,24 +236,90 @@ export const Conversation:FC<ConversationProps> = ({
       }}
     >
     <div>
-    <div className="main-grid h-screen max-h-screen w-screen p-4 max-w-96 md:max-w-screen-lg m-auto">
+    <div className="main-grid h-full max-h-full w-full p-4 max-w-screen-lg m-auto">
       <div className="controls text-center flex justify-center items-center gap-2">
-         <Button
-            onClick={onPressConnect}
-            disabled={socketStatus !== "connected" && !isOver}
-          >
-            {socketButtonMsg}
-          </Button>
           <div className={`h-4 w-4 rounded-full ${socketColor}`} />
+          <span className="text-sm text-gray-500">{socketStatus}</span>
+      <div className="flex flex-col gap-2 ml-4">
+        <div className="flex items-center gap-2">
+          <label className="text-sm w-32">Text Temp (0.7):</label>
+          <input
+            aria-label="text-temperature"
+            type="range"
+            min={0}
+            max={2.0}
+            step={0.01}
+            value={modelParams.textTemperature}
+            onChange={(e) => modelParams.setTextTemperature(Number(e.target.value))}
+            className="w-40"
+          />
+          <div className="w-12 text-sm text-left">{modelParams.textTemperature.toFixed(2)}</div>
         </div>
-        {audioContext.current && worklet.current && <MediaContext.Provider value={
+        <div className="flex items-center gap-2">
+          <label className="text-sm w-32">Text TopK (25):</label>
+          <input
+            aria-label="text-topk"
+            type="range"
+            min={5}
+            max={500}
+            step={1}
+            value={modelParams.textTopk}
+            onChange={(e) => modelParams.setTextTopk(Number(e.target.value))}
+            className="w-40"
+          />
+          <div className="w-12 text-sm text-left">{modelParams.textTopk}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-sm w-32">Audio Temp (0.8):</label>
+          <input
+            aria-label="audio-temperature"
+            type="range"
+            min={0}
+            max={2.0}
+            step={0.01}
+            value={modelParams.audioTemperature}
+            onChange={(e) => modelParams.setAudioTemperature(Number(e.target.value))}
+            className="w-40"
+          />
+          <div className="w-12 text-sm text-left">{modelParams.audioTemperature.toFixed(2)}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-sm w-32">Audio TopK (250):</label>
+          <input
+            aria-label="audio-topk"
+            type="range"
+            min={5}
+            max={1000}
+            step={1}
+            value={modelParams.audioTopk}
+            onChange={(e) => modelParams.setAudioTopk(Number(e.target.value))}
+            className="w-40"
+          />
+          <div className="w-12 text-sm text-left">{modelParams.audioTopk}</div>
+        </div>
+        <Button onClick={() => {
+          sendMessage({
+            type: "metadata",
+            data: {
+              text_temperature: modelParams.textTemperature,
+              text_topk: modelParams.textTopk,
+              audio_temperature: modelParams.audioTemperature,
+              audio_topk: modelParams.audioTopk,
+            },
+          });
+        }}>
+          Apply
+        </Button>
+      </div>
+        </div>
+        {audioContext.current && worklet.current && audioStreamDestination.current && stereoMerger.current && <MediaContext.Provider value={
           {
             startRecording,
             stopRecording,
             audioContext: audioContext as MutableRefObject<AudioContext>,
             worklet: worklet as MutableRefObject<AudioWorkletNode>,
-            audioStreamDestination,
-            stereoMerger,
+            audioStreamDestination: audioStreamDestination as MutableRefObject<MediaStreamAudioDestinationNode>,
+            stereoMerger: stereoMerger as MutableRefObject<ChannelMergerNode>,
             micDuration,
             actualAudioPlayed,
           }

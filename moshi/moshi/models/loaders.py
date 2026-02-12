@@ -40,7 +40,8 @@ SAMPLE_RATE = 24000
 FRAME_RATE = 12.5
 
 TEXT_TOKENIZER_NAME = 'tokenizer_spm_32k_3.model'
-MOSHI_NAME = 'model.safetensors'
+MOSHI_NAME = 'model_personaplex.safetensors'
+# MOSHI_NAME = 'model_moshi.safetensors'
 MIMI_NAME = 'tokenizer-e351c8d8-checkpoint125.safetensors'
 DEFAULT_REPO = 'nvidia/personaplex-7b-v1'
 
