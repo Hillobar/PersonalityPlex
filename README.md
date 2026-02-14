@@ -26,6 +26,12 @@ PersonalityPlex builds upon PersonaPlex to allow you to create (and share) Perso
   <em>Talk to your Personality</em>
 </p>
 
+<p align="center">
+  <img width="1032" height="895" alt="Screenshot 2026-02-14 111218" src="https://github.com/user-attachments/assets/45e272c7-e3ef-4e96-adc6-9ccb38a7d506" />
+  <br>
+  <em>Clone a Voice</em>
+</p>
+
 ## Usage
 - to do
 
