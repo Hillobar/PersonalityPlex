@@ -76,6 +76,8 @@ export const ModelParams:FC<ModelParamsProps> = ({
             repetitionPenalty,
             repetitionPenaltyContext,
             textPrompt: modalTextPrompt,
+            additionalText: "",
+            personalityId: "",
             voicePrompt: modalVoicePrompt,
             randomSeed,
           });

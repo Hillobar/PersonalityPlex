@@ -9,61 +9,14 @@ type AudioVisualizerProps = {
 };
 
 const MAX_INTENSITY = 255;
-
-const COLORS = [
-  "#265600",  // 1 (bottom)
-  "#3A6F00",  // 2
-  "#4E8800",  // 3
-  "#62A100",  // 4
-  "#76B900",  // 5
-  "#8DA800",  // 6
-  "#A49800",  // 7
-  "#BB8700",  // 8
-  "#D17600",  // 9
-  "#E86600",  // 10
-  "#FF5500",  // 11 (top)
-];
+const BAR_HEIGHT = 24;
 
 export const ClientVisualizer: FC<AudioVisualizerProps> = ({ analyser, parent, theme }) => {
-  const [canvasWidth, setCanvasWidth] = useState(parent.current ? Math.min(parent.current.clientWidth, parent.current.clientHeight) : 0 );
+  const [canvasWidth, setCanvasWidth] = useState(parent.current ? parent.current.clientWidth : 0);
   const requestRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const drawBars = useCallback(
-    (
-      ctx: CanvasRenderingContext2D,
-      x: number,
-      y: number,
-      volume: number,
-      height: number,
-      width: number,
-      gap: number,
-    ) => {
-      const barHeight = height / 10 - gap;
-      for (let i = 1; i <= 10; i++) {
-        const barY = y + height + gap + Math.min(1, width / 30)- (i * barHeight + i * gap);
-        ctx.fillStyle = COLORS[i - 1];
-        ctx.strokeStyle = theme === "dark" ? "white" : "black";
-        ctx.lineWidth = Math.min(1, height / 100);
-        if(i <= volume) {
-          ctx.fillRect(x, barY, width, barHeight);
-        }
-        ctx.strokeRect(x, barY, width, barHeight);
-      }
-    },
-    [],
-  );
-
-  const draw = useCallback((ctx:CanvasRenderingContext2D, audioData: Uint8Array,  x:number, y: number, width:number, height: number) => {
-    const stereoGap = Math.floor(width / 30);
-    const barGap = Math.floor(height / 30);
-    const padding = Math.floor(width / 30);
-    const maxBarHeight = Math.floor(height - padding * 2);
-    const maxBarWidth = Math.floor(
-      width / 2.5 - stereoGap - padding * 2,
-    );
-
-    const centerX = x + width / 2;
+  const draw = useCallback((width: number, audioData: Uint8Array, ctx: CanvasRenderingContext2D) => {
     const averageIntensity = Math.sqrt(
       audioData.reduce((acc, curr) => acc + curr * curr, 0) / audioData.length,
     );
@@ -72,50 +25,59 @@ export const ClientVisualizer: FC<AudioVisualizerProps> = ({ analyser, parent, t
       averageIntensity,
       MAX_INTENSITY,
     );
-    const volume = Math.floor((intensity * 10) / MAX_INTENSITY);
-    ctx.fillStyle = theme === "dark" ? "#000000" : "#fafafa";
-    ctx.fillRect(x, y, width, height);
-    drawBars(
-      ctx,
-      centerX - maxBarWidth - stereoGap / 2,
-      y,
-      volume,
-      maxBarHeight,
-      maxBarWidth,
-      barGap,
-    );
-    drawBars(
-      ctx,
-      centerX + stereoGap / 2,
-      y,
-      volume,
-      maxBarHeight,
-      maxBarWidth,
-      barGap,
-    );
-  }, [analyser, drawBars]);
+    const relIntensity = intensity / MAX_INTENSITY;
+    const barWidth = relIntensity * width;
+
+    const h = BAR_HEIGHT;
+    const r = h / 2;
+
+    // Clear and fill background
+    ctx.clearRect(0, 0, width, h);
+    ctx.fillStyle = theme === "dark" ? "#000000" : "#e5e7eb";
+    ctx.beginPath();
+    ctx.roundRect(0, 0, width, h, r);
+    ctx.fill();
+
+    // Draw the active bar
+    if (barWidth > 0) {
+      ctx.beginPath();
+      ctx.fillStyle = "#4E8800";
+      ctx.roundRect(0, 0, barWidth, h, r);
+      ctx.fill();
+
+      // Draw a brighter leading section
+      const highlightWidth = Math.min(barWidth, width * 0.05);
+      ctx.beginPath();
+      ctx.fillStyle = "#76B900";
+      ctx.roundRect(0, 0, highlightWidth, h, r);
+      ctx.fill();
+    }
+
+    // Draw border
+    ctx.beginPath();
+    ctx.roundRect(0, 0, width, h, r);
+    ctx.strokeStyle = theme === "dark" ? "white" : "#9ca3af";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }, [theme]);
 
   const visualizeData = useCallback(() => {
-    const width = parent.current ? Math.min(parent.current.clientWidth, parent.current.clientHeight) : 0
+    const width = parent.current ? parent.current.clientWidth : 0;
     if (width !== canvasWidth) {
       setCanvasWidth(width);
     }
     requestRef.current = window.requestAnimationFrame(() => visualizeData());
     if (!canvasRef.current) {
-      console.log("Canvas not found");
       return;
     }
+    const ctx = canvasRef.current.getContext("2d");
     const audioData = new Uint8Array(140);
     analyser?.getByteFrequencyData(audioData);
-
-    const ctx = canvasRef.current.getContext("2d");
     if (!ctx) {
-      console.log("Canvas context not found");
       return;
     }
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    draw(ctx, audioData, 0, 0,  width, width);
-  }, [analyser, canvasWidth, drawBars, parent, draw]);
+    draw(width, audioData, ctx);
+  }, [analyser, canvasWidth, parent, draw]);
 
   useEffect(() => {
     visualizeData();
@@ -125,12 +87,13 @@ export const ClientVisualizer: FC<AudioVisualizerProps> = ({ analyser, parent, t
       }
     };
   }, [visualizeData, analyser]);
+
   return (
     <canvas
+      className="w-full"
       ref={canvasRef}
-      className="max-h-full max-w-full"
       width={canvasWidth}
-      height={canvasWidth}
+      height={BAR_HEIGHT}
     />
   );
 };

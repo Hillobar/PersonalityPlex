@@ -32,7 +32,7 @@ class VoiceDiscovery:
 
         # 2. Custom voices directory (from .env or default)
 
-        custom_path = Path.cwd() / 'custom_voices'
+        custom_path = Path.cwd() / 'Personalities' / 'Embeddings'
         if custom_path.exists():
             dirs.append(custom_path)
 

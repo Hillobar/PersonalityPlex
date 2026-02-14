@@ -29,7 +29,6 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from os.path import splitext
@@ -37,13 +36,12 @@ import logging
 import numpy as np
 import sys
 from typing import Optional, Union, List, Tuple, Callable, Iterator
-import sphn
 import torch
-from tqdm.auto import tqdm
+import librosa
 
 from ..utils.sampling import sample_token
 from ..utils.compile import CUDAGraphed
-from ..modules.streaming import StreamingStateDict, StreamingContainer, StreamingModule, load_streaming_state
+from ..modules.streaming import StreamingContainer, StreamingModule
 from ..modules.transformer import (
     StreamingTransformer,
     create_norm_fn,
@@ -122,11 +120,10 @@ def load_audio(
     filepath: str, sample_rate: int, 
 ):
     """Yields audio samples in intervals of sample_interval_size"""
-    sample_pcm, sample_sr = sphn.read(filepath)
-    sample_pcm = sphn.resample(
-        sample_pcm, src_sample_rate=sample_sr, dst_sample_rate=sample_rate
-    )  # shape: (C, T)
-    return sample_pcm
+    sample_pcm_librosa, _ = librosa.load( filepath, sr=sample_rate, mono=True)# shape: (1, T) for mono
+    sample_pcm_librosa = sample_pcm_librosa[np.newaxis, :]
+
+    return sample_pcm_librosa
 
 def _iterate_audio(sample_pcm, sample_interval_size, max_len=sys.maxsize, pad=True):
     cnt = 0
@@ -149,8 +146,17 @@ def _iterate_audio(sample_pcm, sample_interval_size, max_len=sys.maxsize, pad=Tr
         cnt += 1
         yield sample[0:1]  # shape: (1, T)
 
+def decode_tokens_to_pcm(mimi, tokens: torch.Tensor) -> np.ndarray:
+    """Decode a single step of model tokens to PCM using Mimi.
 
-def encode_from_sphn(mimi, samples, max_batch=sys.maxsize):
+    tokens is shaped [B, dep_q+1, 1]; channels 1..dep_q are the agent audio codebooks.
+    Returns a 1D float32 numpy array (mono) for the current frame.
+    """
+    pcm = mimi.decode(tokens[:, 1:9])
+    pcm = pcm.detach().cpu().numpy()[0, 0]
+    return pcm    
+
+def encode_from_sphn(mimi, samples):
     """
     Takes an iterator of samples, batches them, encodes them;
     and yields the encoded samples one sample at a time in the same order.
@@ -285,7 +291,6 @@ class LMModel(StreamingContainer):
             dtype=dtype,
             zero_idx=self.zero_token_id,
         )
-        self.EmbeddingFactory = EmbeddingFactory
         self.emb = torch.nn.ModuleList(
             [EmbeddingFactory(self.card + 1, dim) for _ in range(n_q)]
         )
@@ -444,9 +449,8 @@ class LMModel(StreamingContainer):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         return self.forward_embeddings(self.embed_codes(sequence))
     
-    def forward_embeddings(self, input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # print("EMBED:", input[0, 0, :10].float().cpu().tolist()) # DEBUG
-        transformer_out = self.transformer(input)
+    def forward_embeddings(self, input_t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        transformer_out = self.transformer(input_t)
         if self.out_norm:
             transformer_out = self.out_norm(transformer_out)
         assert isinstance(transformer_out, torch.Tensor)
@@ -528,30 +532,6 @@ class LMModel(StreamingContainer):
         assert logits.dim() == 4, logits.shape  # [B, Ka, T, card]
         return logits
 
-    def forward_train(self, codes: torch.Tensor):
-        B, K, T = codes.shape
-        # Delaying codes and removing the last time step that will never be an input.
-        initial = self._get_initial_token().expand(B, -1, -1)
-        delayed_codes = _delay_sequence(self.delays, codes, initial)
-        # Inserting the empty tokens for the first time step.
-        delayed_codes = torch.cat([initial, delayed_codes], dim=2)
-
-        # LLM Backbone
-        transformer_out, text_logits = self.forward_codes(delayed_codes[:, :, :-1])
-        logits = self.forward_depformer_training(delayed_codes[:, :, 1:], transformer_out)
-
-        # map back the logits on pattern sequence to logits on original codes: [B, K, S, card] -> [B, K, T, card]
-        # and provide the corresponding mask over invalid positions of tokens. We will with NaN values invalid positions
-        # to ensure they properly handled.
-        logits, logits_mask = _undelay_sequence(
-            self.delays[self.audio_offset:self.audio_offset + self.dep_q],
-            logits, fill_value=float('NaN'))
-        logits_mask &= (codes[:, self.audio_offset: self.audio_offset + self.dep_q] != self.zero_token_id)
-        text_logits, text_logits_mask = _undelay_sequence(self.delays[:1], text_logits, fill_value=float('NaN'))
-        text_logits_mask &= (codes[:, :1] != self.zero_token_id)
-        return LMOutput(logits, logits_mask, text_logits, text_logits_mask)
-
-
 @dataclass
 class _LMGenState:
     cache: torch.Tensor
@@ -598,45 +578,45 @@ def create_loss_report(
 
     # Text Channel
     text_logits = text_logits.squeeze(dim=1).squeeze(dim=1)
-    target = target[:, 0].squeeze(1).clone()
+    text_target = target[:, 0].squeeze(1).clone()
 
     text_probs = torch.softmax(text_logits, dim=-1)
     text_ranks = torch.argsort(text_probs, dim=-1, descending=True)
     for b in range(B):
-        forced_token = target[b].item()
+        forced_token = text_target[b].item()
         try:
             rank = (text_ranks[b] == forced_token).nonzero().item()
         except RuntimeError:
             rank = lm_model.zero_token_id
         report["ranks_of_forced"][b, 0] = rank
 
-    target[target == lm_model.text_initial_token_id] = -100
+    text_target[text_target == lm_model.text_initial_token_id] = -100
     text_loss = torch.nn.functional.cross_entropy(
         text_logits,
-        target,
+        text_target,
         ignore_index=-100,
         )
     report["losses"][:, 0] = text_loss
 
     # Audio Channels
     for k in range(lm_model.dep_q):
-        target = target[:, k+1].squeeze(1).clone()
+        audio_target = target[:, k+1].squeeze(1).clone()
         channel_logits = audio_logits[:, k, :]
 
         audio_probs = torch.softmax(channel_logits, dim=-1)
         audio_ranks = torch.argsort(audio_probs, dim=-1, descending=True)
         for b in range(B):
-            forced_token = target[b].item()
+            forced_token = audio_target[b].item()
             try:
                 rank = (audio_ranks[b] == forced_token).nonzero().item()
             except RuntimeError:
                 rank = lm_model.zero_token_id
             report["ranks_of_forced"][b, k + 1] = rank
 
-        target[target == lm_model.initial_token_id] = -100
+        audio_target[audio_target == lm_model.initial_token_id] = -100
         audio_loss = torch.nn.functional.cross_entropy(
             channel_logits,
-            target,
+            audio_target,
             ignore_index=-100,
         )
         report["losses"][:, k + 1] = audio_loss
@@ -674,7 +654,7 @@ class LMGen(StreamingModule[_LMGenState]):
         self.text_prompt_tokens = text_prompt_tokens
         self.audio_silence_frame_cnt = audio_silence_frame_cnt
         self.voice_prompt = None
-        self.zero_text_code = 3
+        self.zero_text_code = 3  # PAD token id in the text tokenizer
         self._frame_rate = frame_rate
         self._sample_rate = sample_rate
         self._frame_size = int(self._sample_rate / self._frame_rate)
@@ -697,11 +677,11 @@ class LMGen(StreamingModule[_LMGenState]):
         self.voice_prompt_audio: Optional[torch.Tensor] = None
         self.voice_prompt_cache: Optional[torch.Tensor] = None
         self.voice_prompt_embeddings: Optional[torch.Tensor] = None
-        #self.voice_prompt_mimi_streaming_state: Optional[StreamingStateDict] = None
 
     def _init_streaming_state(self, batch_size: int) -> _LMGenState:
         lm_model = self.lm_model
         initial = lm_model._get_initial_token()
+        # +3: room for current step, next target, and one extra for circular indexing
         cache = torch.full(
             (batch_size, self.lm_model.num_codebooks, self.max_delay + 3),
             lm_model.ungenerated_token_id,
@@ -736,7 +716,6 @@ class LMGen(StreamingModule[_LMGenState]):
             )
         lm_model = self.lm_model
 
-        # audio_tokens_per_stream = lm_model.dep_q//2
         needed_tokens = lm_model.num_codebooks - AUDIO_TOKENS_PER_STREAM - 1
         CT = state.cache.shape[2]
 
@@ -820,8 +799,6 @@ class LMGen(StreamingModule[_LMGenState]):
         prepared_inputs = self.prepare_step_input(
             input_tokens, moshi_tokens, text_token,
         )
-        # print("INPUT:", None if input_tokens is None else input_tokens.squeeze().cpu().tolist()) # DEBUG
-        # print("MOSHI:", None if moshi_tokens is None else moshi_tokens.squeeze().cpu().tolist()) # DEBUG
         if prepared_inputs is None:
             return (None, None) if self.report_loss or self.return_logits else None
         input_, provided_, target_, model_input_position, target_position = prepared_inputs
@@ -958,12 +935,13 @@ class LMGen(StreamingModule[_LMGenState]):
             return out
 
     def load_voice_prompt(self, voice_prompt: str):
+        
         self.voice_prompt = voice_prompt
         raw_audio = load_audio(
             voice_prompt, self._sample_rate,
         )  # shape: (1, T) for mono
-
-        # Normalize to -24 LUFS (mono-safe)
+  
+        # Normalize to -24 LUFS (mono-safe)        
         raw_audio = normalize_audio(raw_audio, self._sample_rate, -24.0)
 
         # Keep shape (1, T) because your encoder expects channels-first
@@ -976,8 +954,21 @@ class LMGen(StreamingModule[_LMGenState]):
 
     def load_voice_prompt_embeddings(self, path: str):
         self.voice_prompt = path
-        state = torch.load(path)
+        state = torch.load(path, weights_only=True)
 
+        self.voice_prompt_audio = None
+        self.voice_prompt_embeddings = state["embeddings"].to(self.lm_model.device)
+        self.voice_prompt_cache = state["cache"].to(self.lm_model.device)
+
+    def load_voice_prompt_embeddings_from_data(self, base64_data: str, cache_key: str = ""):
+        """Load voice prompt embeddings from base64-encoded .pt data."""
+        import base64
+        import io
+
+        pt_bytes = base64.b64decode(base64_data)
+        state = torch.load(io.BytesIO(pt_bytes), weights_only=True)
+
+        self.voice_prompt = cache_key
         self.voice_prompt_audio = None
         self.voice_prompt_embeddings = state["embeddings"].to(self.lm_model.device)
         self.voice_prompt_cache = state["cache"].to(self.lm_model.device)
@@ -1004,7 +995,6 @@ class LMGen(StreamingModule[_LMGenState]):
                 sample_interval_size=self._frame_size,
                 pad=True,
             ),
-            max_batch=1,
         )
 
     def _step_voice_prompt_frame(self,
@@ -1059,7 +1049,6 @@ class LMGen(StreamingModule[_LMGenState]):
                     },
                     splitext(self.voice_prompt)[0] + ".pt",
                 )
-        print('Done loading voice prompt.')
 
     def _step_voice_prompt(self, mimi):
         # Sync path intentionally does not support `is_alive` / disconnect checks.
@@ -1081,7 +1070,7 @@ class LMGen(StreamingModule[_LMGenState]):
                 text_token=self.zero_text_code,
                 input_tokens=self._encode_sine_frame(),
             )
-        print('Done loading audio silence.')
+        logger.info('Done loading audio silence.')
 
     def _step_audio_silence(self):
         # Sync path intentionally does not support `is_alive` / disconnect checks.
@@ -1101,7 +1090,7 @@ class LMGen(StreamingModule[_LMGenState]):
                 text_token=text_prompt_token,
                 input_tokens=self._encode_sine_frame(),
             )
-        print('Done loading text prompt.')
+        logger.info('Done loading text prompt.')
 
 
     def _step_text_prompt(self):
@@ -1175,4 +1164,3 @@ class LMGen(StreamingModule[_LMGenState]):
             return tokens, all_logits
         else:
             return tokens
-

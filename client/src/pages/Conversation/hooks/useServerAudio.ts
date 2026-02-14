@@ -4,19 +4,6 @@ import { decodeMessage } from "../../../protocol/encoder";
 import { useMediaContext } from "../MediaContext";
 import { createDecoderWorker, initDecoder, getPrewarmedWorker } from "../../../decoder/decoderWorker";
 
-export type AudioStats = {
-  playedAudioDuration: number;
-  missedAudioDuration: number;
-  totalAudioMessages: number;
-  delay: number;
-  minPlaybackDelay: number;
-  maxPlaybackDelay: number;
-};
-
-type useServerAudioArgs = {
-  setGetAudioStats?: (getAudioStats: () => AudioStats) => void;
-};
-
 type WorkletStats = {
   totalAudioPlayed: number;
   actualAudioPlayed: number;
@@ -25,7 +12,7 @@ type WorkletStats = {
   maxDelay: number;
 };
 
-export const useServerAudio = ({setGetAudioStats}: useServerAudioArgs) => {
+export const useServerAudio = () => {
   const { socket, socketStatus } = useSocketContext();
   const {startRecording, stopRecording, audioContext, worklet, micDuration, actualAudioPlayed } =
     useMediaContext();
@@ -60,17 +47,6 @@ export const useServerAudio = ({setGetAudioStats}: useServerAudioArgs) => {
     [],
   );
   worklet.current.port.onmessage = onWorkletMessage;
-
-  const getAudioStats = useCallback(() => {
-    return {
-      playedAudioDuration: workletStats.current.actualAudioPlayed,
-      delay: workletStats.current.delay,
-      minPlaybackDelay: workletStats.current.minDelay,
-      maxPlaybackDelay: workletStats.current.maxDelay,
-      missedAudioDuration: workletStats.current.totalAudioPlayed - workletStats.current.actualAudioPlayed,
-      totalAudioMessages: totalAudioMessages.current,
-    };
-  }, []);
 
   const onWorkerMessage = useCallback(
     (e: MessageEvent<any>) => {
@@ -138,12 +114,6 @@ export const useServerAudio = ({setGetAudioStats}: useServerAudioArgs) => {
     };
   }, [socket, socketStatus, decoderReady]);
 
-  useEffect(() => {
-    if (setGetAudioStats) {
-      setGetAudioStats(getAudioStats);
-    }
-  }, [setGetAudioStats, getAudioStats]);
-
   // Use prewarmed worker if available, otherwise create fresh one
   useEffect(() => {
     let mounted = true;
@@ -198,7 +168,6 @@ export const useServerAudio = ({setGetAudioStats}: useServerAudioArgs) => {
   return {
     decodeAudio,
     analyser,
-    getAudioStats,
     hasCriticalDelay,
     setHasCriticalDelay,
   };

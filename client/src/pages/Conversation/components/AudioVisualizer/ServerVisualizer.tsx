@@ -10,16 +10,16 @@ type AudioVisualizerProps = {
 };
 
 const MAX_INTENSITY = 255;
+const BAR_HEIGHT = 24;
 
 export const ServerVisualizer: FC<AudioVisualizerProps> = ({ analyser, parent, theme }) => {
-  const [canvasWidth, setCanvasWidth] = useState( parent.current ? Math.min(parent.current.clientWidth, parent.current.clientHeight) : 0 );
+  const [canvasWidth, setCanvasWidth] = useState(parent.current ? parent.current.clientWidth : 0);
   const requestRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const { socketStatus } = useSocketContext();
 
-  const draw = useCallback((width: number, centerX:number, centerY:number,audioData: Uint8Array, ctx: CanvasRenderingContext2D) => {
-    const maxCircleWidth = Math.floor(width * 0.95);
+  const draw = useCallback((width: number, audioData: Uint8Array, ctx: CanvasRenderingContext2D) => {
     const averageIntensity = Math.sqrt(
       audioData.reduce((acc, curr) => acc + curr * curr, 0) / audioData.length,
     );
@@ -29,57 +29,60 @@ export const ServerVisualizer: FC<AudioVisualizerProps> = ({ analyser, parent, t
       MAX_INTENSITY,
     );
     const relIntensity = intensity / MAX_INTENSITY;
-    const radius = ((socketStatus === "connected" ? 0.3 + 0.7 * relIntensity : relIntensity) * maxCircleWidth) / 2;
-    // Draw a circle with radius based on intensity
-    ctx.clearRect( centerX - width /2, centerY - width/2 , width, width);
-    ctx.fillStyle = theme === "dark" ? "#000000" : "#fafafa";
-    ctx.fillRect(centerX - width / 2, centerY - width / 2, width, width);
-    ctx.beginPath();
-    ctx.fillStyle = "#4E8800";
-    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-    ctx.fill();
-    ctx.closePath();
+    const barWidth = (socketStatus === "connected" ? 0.05 + 0.95 * relIntensity : relIntensity) * width;
 
-    // Draw an inner circle if we are connected.
-    if (socketStatus === "connected") {
+    const h = BAR_HEIGHT;
+    const r = h / 2; // corner radius
+
+    // Clear and fill background
+    ctx.clearRect(0, 0, width, h);
+    ctx.fillStyle = theme === "dark" ? "#000000" : "#e5e7eb";
+    ctx.beginPath();
+    ctx.roundRect(0, 0, width, h, r);
+    ctx.fill();
+
+    // Draw the active bar
+    if (barWidth > 0) {
       ctx.beginPath();
-      ctx.arc(centerX, centerY, maxCircleWidth / 6, 0, 2 * Math.PI);
-      ctx.fillStyle = "#76B900";
+      ctx.fillStyle = "#4E8800";
+      ctx.roundRect(0, 0, barWidth, h, r);
       ctx.fill();
-      ctx.closePath();
+
+      // Draw a brighter leading section when connected
+      if (socketStatus === "connected") {
+        const highlightWidth = Math.min(barWidth, width * 0.05);
+        ctx.beginPath();
+        ctx.fillStyle = "#76B900";
+        ctx.roundRect(0, 0, highlightWidth, h, r);
+        ctx.fill();
+      }
     }
 
-    //Draw a circle with max radius
+    // Draw border
     ctx.beginPath();
-    ctx.arc(centerX, centerY, maxCircleWidth / 2, 0, 2 * Math.PI);
-    ctx.strokeStyle = theme === "dark" ? "white" : "black";
-    ctx.lineWidth = width / 50;
+    ctx.roundRect(0, 0, width, h, r);
+    ctx.strokeStyle = theme === "dark" ? "white" : "#9ca3af";
+    ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.closePath();
-  }, [socketStatus]);
+  }, [socketStatus, theme]);
 
   const visualizeData = useCallback(() => {
-    const width = parent.current ? Math.min(parent.current.clientWidth, parent.current.clientHeight) : 0;
+    const width = parent.current ? parent.current.clientWidth : 0;
     if (width !== canvasWidth) {
       setCanvasWidth(width);
     }
     requestRef.current = window.requestAnimationFrame(() => visualizeData());
     if (!canvasRef.current) {
-      console.log("Canvas not found");
       return;
     }
     const ctx = canvasRef.current.getContext("2d");
     const audioData = new Uint8Array(140);
     analyser?.getByteFrequencyData(audioData);
-    if(!ctx){
-      console.log("Canvas context not found");
+    if (!ctx) {
       return;
     }
-    const centerX = width / 2;
-    const centerY = width / 2;
-    draw(width, centerX, centerY, audioData, ctx);
-  }, [analyser, socketStatus, canvasWidth, parent]);
-
+    draw(width, audioData, ctx);
+  }, [analyser, socketStatus, canvasWidth, parent, draw]);
 
   useEffect(() => {
     if (!analyser) {
@@ -96,10 +99,10 @@ export const ServerVisualizer: FC<AudioVisualizerProps> = ({ analyser, parent, t
 
   return (
     <canvas
-      className="max-h-full max-w-full"
+      className="w-full"
       ref={canvasRef}
       width={canvasWidth}
-      height={canvasWidth}
+      height={BAR_HEIGHT}
     />
   );
 };

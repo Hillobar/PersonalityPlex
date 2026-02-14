@@ -3,12 +3,16 @@ import { useState, useEffect, useCallback } from "react";
 export interface Personality {
   id: string;
   name: string;
+  avatar: string;
+  shortDescription: string;
   description: string;
+  additionalText: string;
   embedding: string;
   textTemperature: number;
   textTopk: number;
   audioTemperature: number;
   audioTopk: number;
+  seed: number;
 }
 
 export function usePersonalities() {

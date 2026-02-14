@@ -193,3 +193,5 @@ test/
 Agents.md
 Claude.local.md
 !convert_sounds.bat
+client/src/audio-processor_old.ts
+Settings/settings.json

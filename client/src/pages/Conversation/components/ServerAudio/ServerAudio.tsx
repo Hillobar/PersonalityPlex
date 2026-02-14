@@ -1,16 +1,13 @@
 import { FC, useRef } from "react";
-import { AudioStats, useServerAudio } from "../../hooks/useServerAudio";
+import { useServerAudio } from "../../hooks/useServerAudio";
 import { ServerVisualizer } from "../AudioVisualizer/ServerVisualizer";
 import { type ThemeType } from "../../hooks/useSystemTheme";
 
 type ServerAudioProps = {
-  setGetAudioStats: (getAudioStats: () => AudioStats) => void;
   theme: ThemeType;
 };
-export const ServerAudio: FC<ServerAudioProps> = ({ setGetAudioStats, theme }) => {
-  const { analyser, hasCriticalDelay, setHasCriticalDelay } = useServerAudio({
-    setGetAudioStats,
-  });
+export const ServerAudio: FC<ServerAudioProps> = ({ theme }) => {
+  const { analyser, hasCriticalDelay, setHasCriticalDelay } = useServerAudio();
   const containerRef = useRef<HTMLDivElement>(null);
   return (
     <>
@@ -21,13 +18,13 @@ export const ServerAudio: FC<ServerAudioProps> = ({ setGetAudioStats, theme }) =
             onClick={async () => {
               setHasCriticalDelay(false);
             }}
-            className="bg-white p-1 text-black"
+            className="bg-gray-800 p-1 text-gray-100 rounded"
           >
             Dismiss
           </button>
         </div>
       )}
-      <div className="server-audio h-4/6 aspect-square" ref={containerRef}>
+      <div className="server-audio w-full" ref={containerRef}>
         <ServerVisualizer analyser={analyser.current} parent={containerRef} theme={theme}/>
       </div>
     </>

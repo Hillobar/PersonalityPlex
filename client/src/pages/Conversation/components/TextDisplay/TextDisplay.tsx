@@ -23,7 +23,7 @@ export const TextDisplay:FC<TextDisplayProps> = ({
   }, [text]);
 
   return (
-    <div className="h-full w-full max-w-full max-h-full  p-2">
+    <div className="h-full w-full max-w-full max-h-full p-2 text-gray-200">
         {text.map((t, i) => (
           <span
             key={i}

@@ -26,13 +26,12 @@
 
 import argparse
 import asyncio
-from dataclasses import dataclass
+import base64
 import json
-import random
 import os
 from pathlib import Path
+import random
 import tarfile
-import time
 import secrets
 import sys
 from typing import Literal, Optional
@@ -44,13 +43,10 @@ import numpy as np
 import sentencepiece
 import sphn
 import torch
-import random
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
-
-from .client_utils import make_log, colorize
 from .models import loaders, MimiModel, LMModel, LMGen
 from .utils.connection import create_ssl_context, get_lan_ip
 from .utils.logging import setup_logger, ColorizedLog
@@ -92,13 +88,7 @@ def wrap_with_system_tags(text: str) -> str:
     return f"<system> {cleaned} <system>"
 
 
-@dataclass
 class ServerState:
-    mimi: MimiModel
-    text_tokenizer: sentencepiece.SentencePieceProcessor
-    lm_gen: LMGen
-    lock: asyncio.Lock
-
     def __init__(self, mimi: MimiModel, text_tokenizer: sentencepiece.SentencePieceProcessor,
                  lm: LMModel, device: str | torch.device, voice_prompt_dir: str | None = None,
                  save_voice_prompt_embeddings: bool = False):
@@ -107,7 +97,6 @@ class ServerState:
         self.device = device
         self.voice_prompt_dir = voice_prompt_dir
         self.frame_size = int(self.mimi.sample_rate / self.mimi.frame_rate)
-        self.device = device
         self.save_voice_prompt_embeddings = save_voice_prompt_embeddings
         self.lm = lm
         self.lm_gen = LMGen(lm,
@@ -144,40 +133,45 @@ class ServerState:
         peer_port = request.transport.get_extra_info("peername")[1]  # Port
         clog.log("info", f"Incoming connection from {peer}:{peer_port}")
 
-        # self.lm_gen.temp = float(request.query["audio_temperature"])
-        # self.lm_gen.temp_text = float(request.query["text_temperature"])
-        # self.lm_gen.top_k_text = max(1, int(request.query["text_topk"]))
-        # self.lm_gen.top_k = max(1, int(request.query["audio_topk"]))
-        
-        # # This will allow audio temp and topk to be applied since htey are applied during init of LMGEN
-        # self.lm_gen._stop_streaming()
-        # self.lm_gen.streaming_forever(1)
+        # Load voice prompt: prefer inline embedding data from personality JSON
+        personality_id = request.query.get("personality_id", "")
+        voice_prompt_filename = request.query.get("voice_prompt", "")
+        embedding_loaded = False
 
- 
-        # Construct full voice prompt path
-        requested_voice_prompt_path = None
-        voice_prompt_path = None
-        if self.voice_prompt_dir is not None:
-            voice_prompt_filename = request.query["voice_prompt"]
-            requested_voice_prompt_path = None
-            if voice_prompt_filename is not None:
-                requested_voice_prompt_path = os.path.join(self.voice_prompt_dir, voice_prompt_filename)
-            # If the voice prompt file does not exist, find a valid (s0) voiceprompt file in the directory
-            if requested_voice_prompt_path is None or not os.path.exists(requested_voice_prompt_path):
+        if personality_id:
+            cache_key = f"personality:{personality_id}"
+            personalities_dir = Path.cwd() / "Personalities"
+            personality_file = self._find_personality_file(personalities_dir, personality_id)
+            if personality_file and personality_file.exists():
+                personality_data = json.loads(personality_file.read_text(encoding="utf-8"))
+                embedding_data_b64 = personality_data.get("embeddingData", "")
+                if embedding_data_b64:
+                    if self.lm_gen.voice_prompt != cache_key:
+                        self.lm_gen.load_voice_prompt_embeddings_from_data(embedding_data_b64, cache_key)
+                        logger.info(f"Loaded inline embedding for personality {personality_id}")
+                    embedding_loaded = True
+
+        if not embedding_loaded and voice_prompt_filename and self.voice_prompt_dir is not None:
+            voice_prompt_path = os.path.join(self.voice_prompt_dir, voice_prompt_filename)
+            if not os.path.exists(voice_prompt_path):
                 raise FileNotFoundError(
                     f"Requested voice prompt '{voice_prompt_filename}' not found in '{self.voice_prompt_dir}'"
                 )
-            else:
-                voice_prompt_path = requested_voice_prompt_path
-                
-        if self.lm_gen.voice_prompt != voice_prompt_path:
-            if voice_prompt_path.endswith('.pt'):
-                # Load pre-saved voice prompt embeddings
-                self.lm_gen.load_voice_prompt_embeddings(voice_prompt_path)
-            else:
-                self.lm_gen.load_voice_prompt(voice_prompt_path)
-        self.lm_gen.text_prompt_tokens = self.text_tokenizer.encode(wrap_with_system_tags(request.query["text_prompt"])) if len(request.query["text_prompt"]) > 0 else None
-        seed = int(request["seed"]) if "seed" in request.query else None
+            if self.lm_gen.voice_prompt != voice_prompt_path:
+                if voice_prompt_path.endswith('.pt'):
+                    self.lm_gen.load_voice_prompt_embeddings(voice_prompt_path)
+                else:
+                    self.lm_gen.load_voice_prompt(voice_prompt_path)
+        text_prompt = request.query.get("text_prompt", "")
+        additional_text = request.query.get("additional_text", "")
+        if text_prompt:
+            tokens = self.text_tokenizer.encode(wrap_with_system_tags(text_prompt))
+            if additional_text:
+                tokens = tokens + self.text_tokenizer.encode(additional_text)
+            self.lm_gen.text_prompt_tokens = tokens
+        else:
+            self.lm_gen.text_prompt_tokens = None
+        seed = int(request.query["seed"]) if "seed" in request.query else None
 
         async def recv_loop():
             nonlocal close
@@ -205,10 +199,9 @@ class ServerState:
                         payload = message[1:]
                         opus_reader.append_bytes(payload)
                     elif kind == 4:  # metadata (param update)
-                        import json as _json
                         try:
                             payload = message[1:]
-                            params = _json.loads(payload.decode("utf-8"))
+                            params = json.loads(payload.decode("utf-8"))
                             if "text_temperature" in params:
                                 self.lm_gen.temp_text = float(params["text_temperature"])
                             if "text_topk" in params:
@@ -245,7 +238,6 @@ class ServerState:
                 else:
                     all_pcm_data = np.concatenate((all_pcm_data, pcm))
                 while all_pcm_data.shape[-1] >= self.frame_size:
-                    be = time.time()
                     chunk = all_pcm_data[: self.frame_size]
                     all_pcm_data = all_pcm_data[self.frame_size:]
                     chunk = torch.from_numpy(chunk)
@@ -260,14 +252,12 @@ class ServerState:
                         main_pcm = main_pcm.cpu()
                         opus_writer.append_pcm(main_pcm[0, 0].numpy())
                         text_token = tokens[0, 0, 0].item()
+                        # 0 = EPAD (end-of-padding), 3 = PAD — skip non-content tokens
                         if text_token not in (0, 3):
                             _text = self.text_tokenizer.id_to_piece(text_token)  # type: ignore
                             _text = _text.replace("▁", " ")
                             msg = b"\x02" + bytes(_text, encoding="utf8")
                             await ws.send_bytes(msg)
-                        else:
-                            text_token_map = ['EPAD', 'BOS', 'EOS', 'PAD']
-
         async def send_loop():
             while True:
                 if close:
@@ -280,8 +270,8 @@ class ServerState:
         clog.log("info", "accepted connection")
         if len(request.query["text_prompt"]) > 0:
             clog.log("info", f"text prompt: {request.query['text_prompt']}")
-        if len(request.query["voice_prompt"]) > 0:
-            clog.log("info", f"voice prompt: {voice_prompt_path} (requested: {requested_voice_prompt_path})")
+        if voice_prompt_filename:
+            clog.log("info", f"voice prompt: {voice_prompt_filename} (personality: {personality_id or 'none'})")
         close = False
         async with self.lock:
             if seed is not None and seed != -1:
@@ -330,65 +320,180 @@ class ServerState:
                         pass
                 await ws.close()
                 clog.log("info", "session closed")
-                # await asyncio.gather(opus_loop(), recv_loop(), send_loop())
         clog.log("info", "done with connection")
         return ws
 
-    async def handle_list_personalities(self, request):
-        """List all saved personalities from the Personalities folder."""
-        personalities_dir = Path.cwd() / "Personalities"
-        personalities_dir.mkdir(exist_ok=True)
-        personalities = []
-        for f in sorted(personalities_dir.glob("*.json")):
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                personalities.append(data)
-            except Exception as e:
-                logger.warning(f"Failed to read personality {f}: {e}")
-        return web.json_response(personalities)
+    @staticmethod
+    def _personality_filename(name: str, pid: str) -> str:
+        """Build a filename like 'MyPersonality_abc123.json' from name + id."""
+        safe_name = "".join(c if c.isalnum() or c in (" ", "-", "_") else "" for c in name).strip().replace(" ", "_")
+        return f"{safe_name}_{pid}.json" if safe_name else f"{pid}.json"
 
-    async def handle_save_personality(self, request):
-        """Save or update a personality to the Personalities folder."""
-        personalities_dir = Path.cwd() / "Personalities"
-        personalities_dir.mkdir(exist_ok=True)
+    @staticmethod
+    def _find_personality_file(personalities_dir: Path, pid: str) -> Path | None:
+        """Find a personality JSON by its id, regardless of the name prefix."""
+        for f in personalities_dir.glob(f"*_{pid}.json"):
+            return f
+        # Fallback: old format without name prefix
+        old = personalities_dir / f"{pid}.json"
+        return old if old.exists() else None
+
+    async def handle_generate_embedding(self, request):
+        """Accept an uploaded audio file, generate voice prompt embeddings, and save as .pt."""
         try:
-            data = await request.json()
-            pid = data.get("id")
-            if not pid:
-                return web.json_response({"error": "missing id"}, status=400)
-            filepath = personalities_dir / f"{pid}.json"
-            filepath.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            return web.json_response({"status": "ok"})
+            reader = await request.multipart()
+
+            audio_data = None
+            embedding_name = None
+
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name == "audio":
+                    audio_data = await part.read()
+                elif part.name == "name":
+                    embedding_name = (await part.read()).decode("utf-8").strip()
+
+            if audio_data is None or not embedding_name:
+                return web.json_response({"error": "missing audio file or embedding name"}, status=400)
+
+            # Save uploaded audio to voice prompt directory
+            if self.voice_prompt_dir is None:
+                return web.json_response({"error": "no voice prompt directory configured"}, status=500)
+
+            audio_path = os.path.join(self.voice_prompt_dir, f"{embedding_name}.wav")
+            with open(audio_path, "wb") as f:
+                f.write(audio_data)
+
+            # Enable embedding saving, load the audio, and step through prompts to generate .pt
+            prev_save = self.lm_gen.save_voice_prompt_embeddings
+            prev_text_tokens = self.lm_gen.text_prompt_tokens
+            self.lm_gen.save_voice_prompt_embeddings = True
+            self.lm_gen.text_prompt_tokens = self.text_tokenizer.encode(
+                wrap_with_system_tags("You enjoy having a good conversation.")
+            )
+            self.mimi.reset_streaming()
+            self.lm_gen.reset_streaming()
+            self.lm_gen.load_voice_prompt(audio_path)
+            self.lm_gen.step_system_prompts(self.mimi)
+            self.mimi.reset_streaming()
+            self.lm_gen.reset_streaming()
+            self.lm_gen.save_voice_prompt_embeddings = prev_save
+            self.lm_gen.text_prompt_tokens = prev_text_tokens
+
+            # Re-enter streaming mode for normal operation
+            self.mimi.streaming_forever(1)
+            self.lm_gen.streaming_forever(1)
+
+            pt_path = os.path.splitext(audio_path)[0] + ".pt"
+            if not os.path.exists(pt_path):
+                return web.json_response({"error": "embedding file was not created"}, status=500)
+
+            # Remove the temporary .wav file now that the .pt embedding exists
+            if os.path.exists(audio_path):
+                os.unlink(audio_path)
+
+            return web.json_response({"status": "ok", "embedding": f"{embedding_name}.pt"})
         except Exception as e:
-            logger.error(f"Error saving personality: {e}")
+            logger.error(f"Error generating embedding: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
-    async def handle_delete_personality(self, request):
-        """Delete a personality from the Personalities folder."""
-        personalities_dir = Path.cwd() / "Personalities"
-        pid = request.match_info.get("id")
-        if not pid:
-            return web.json_response({"error": "missing id"}, status=400)
-        filepath = personalities_dir / f"{pid}.json"
-        if filepath.exists():
-            filepath.unlink()
-            return web.json_response({"status": "ok"})
-        return web.json_response({"error": "not found"}, status=404)
-
-    async def handle_list_voices(self, request):
-        """List all available voices from configured directories."""
+    async def handle_test_embedding(self, request):
+        """Load a voice embedding, run inference with a text prompt, and return generated WAV audio."""
         try:
-            voices = VoiceDiscovery.list_voices()
-            return web.json_response({
-                'voices': voices,
-                'count': len(voices)
-            })
-        except Exception as e:
-            logger.error(f"Error listing voices: {e}")
-            return web.json_response({
-                'error': str(e)
-            }, status=500)
+            data = await request.json()
+            embedding_name = data.get("name", "").strip()
+            test_text = data.get("text", "").strip()
 
+            if not embedding_name:
+                return web.json_response({"error": "missing embedding name"}, status=400)
+
+            if self.voice_prompt_dir is None:
+                return web.json_response({"error": "no voice prompt directory configured"}, status=500)
+
+            pt_path = os.path.join(self.voice_prompt_dir, f"{embedding_name}.pt")
+            if not os.path.exists(pt_path):
+                return web.json_response({"error": f"embedding '{embedding_name}.pt' not found"}, status=404)
+
+            # Save and override state
+            prev_text_tokens = self.lm_gen.text_prompt_tokens
+            if test_text:
+                self.lm_gen.text_prompt_tokens = self.text_tokenizer.encode(
+                    wrap_with_system_tags(test_text)
+                )
+            elif self.lm_gen.text_prompt_tokens is None:
+                self.lm_gen.text_prompt_tokens = self.text_tokenizer.encode(
+                    wrap_with_system_tags("You enjoy having a good conversation.")
+                )
+
+            # Load embedding and step system prompts
+            self.mimi.reset_streaming()
+            self.lm_gen.reset_streaming()
+            self.lm_gen.load_voice_prompt_embeddings(pt_path)
+            self.lm_gen.step_system_prompts(self.mimi)
+            self.mimi.reset_streaming()
+
+            # Collect text tokens to feed during generation so the model speaks the text
+            gen_text_tokens = list(self.lm_gen.text_prompt_tokens) if self.lm_gen.text_prompt_tokens else []
+            text_idx = 0
+
+            # Generate audio frames by feeding silence input and text tokens
+            num_steps = int(self.mimi.frame_rate * 5)  # 5 seconds of output
+            generated_pcm = []
+            for _ in range(num_steps):
+                codes = self.mimi.encode(
+                    torch.zeros(1, 1, self.frame_size, device=self.device)
+                )
+                for c in range(codes.shape[-1]):
+                    # Feed text tokens one at a time to guide speech generation
+                    tt = gen_text_tokens[text_idx] if text_idx < len(gen_text_tokens) else None
+                    tokens = self.lm_gen.step(codes[:, :, c: c + 1], text_token=tt)
+                    if tt is not None:
+                        text_idx += 1
+                    if tokens is None:
+                        continue
+                    pcm = self.mimi.decode(tokens[:, 1:9])
+                    generated_pcm.append(pcm[0, 0].cpu().numpy())
+
+            # Restore state and re-enter streaming
+            self.lm_gen.text_prompt_tokens = prev_text_tokens
+            self.mimi.reset_streaming()
+            self.lm_gen.reset_streaming()
+            self.mimi.streaming_forever(1)
+            self.lm_gen.streaming_forever(1)
+
+            if not generated_pcm:
+                return web.json_response({"error": "no audio generated"}, status=500)
+
+            # Concatenate and write WAV to bytes
+            import tempfile
+            audio_data = np.concatenate(generated_pcm, axis=-1)
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp_path = tmp.name
+            tmp.close()
+            try:
+                sphn.write_wav(tmp_path, audio_data, self.mimi.sample_rate)
+                with open(tmp_path, "rb") as f:
+                    wav_bytes = f.read()
+            finally:
+                os.unlink(tmp_path)
+
+            return web.Response(
+                body=wav_bytes,
+                content_type="audio/wav",
+            )
+        except Exception as e:
+            logger.error(f"Error testing embedding: {e}")
+            # Attempt to restore streaming on error
+            try:
+                self.mimi.reset_streaming()
+                self.lm_gen.reset_streaming()
+                self.mimi.streaming_forever(1)
+                self.lm_gen.streaming_forever(1)
+            except Exception:
+                pass
+            return web.json_response({"error": str(e)}, status=500)
 
 def _get_voice_prompt_dir(voice_prompt_dir: Optional[str], hf_repo: str) -> Optional[str]:
     """
@@ -526,11 +631,8 @@ def main():
             "See .env.example for configuration details."
         )
 
-    args.voice_prompt_dir = Path.cwd() / 'custom_voices'
-    
-    if args.voice_prompt_dir is not None:
-        assert os.path.exists(args.voice_prompt_dir), \
-            f"Directory missing: {args.voice_prompt_dir}"
+    args.voice_prompt_dir = Path.cwd() / 'Personalities' / 'Embeddings'
+    args.voice_prompt_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"voice_prompt_dir = {args.voice_prompt_dir}")
 
     static_path: None | str = _get_static_path(args.static)
@@ -556,47 +658,228 @@ def main():
         else:
             tunnel_token = args.gradio_tunnel_token
 
-    # Download config.json to increment download counter
-    # No worries about double-counting since config.json will be cached the second time
-    hf_hub_download(args.hf_repo, "config.json")
+    # -- Deferred model loading: serve the frontend immediately, load models in background --
 
-    logger.info("loading mimi")
-    mimi = loaders.get_mimi("F:\\!PATHS\\Moshi\\Mimi\\" + loaders.MIMI_NAME, args.device)
-    logger.info("mimi loaded")
-    
-    logger.info("loading tokenizer")
-    text_tokenizer = sentencepiece.SentencePieceProcessor("F:\\!PATHS\\Moshi\\Text_tokenizer\\" + loaders.TEXT_TOKENIZER_NAME)  # type: ignore
-    logger.info("tokenizer loaded")
+    loading_state = {
+        "state": None,       # ServerState, set once models are loaded
+        "status": "Waiting for model paths...",
+        "ready": False,
+        "loading": False,    # True while models are being loaded
+    }
 
-    logger.info("loading moshi")
-    lm = loaders.get_moshi_lm("F:\\!PATHS\\Moshi\\Moshi\\" + loaders.MOSHI_NAME, device=args.device, cpu_offload=args.cpu_offload)
-    lm.eval()
-    logger.info("moshi loaded")
-    state = ServerState(
-        mimi=mimi,
-        text_tokenizer=text_tokenizer,
-        lm=lm,
-        device=args.device,
-        voice_prompt_dir=args.voice_prompt_dir,
-        save_voice_prompt_embeddings=False,
-    )
-    logger.info("warming up the model")
-    state.warmup()
+    voice_prompt_dir = str(args.voice_prompt_dir)
+    hf_repo = args.hf_repo
+    device = args.device
+    cpu_offload = args.cpu_offload
+
+    # --- Standalone handlers for file-based operations (no models needed) ---
+
+    async def handle_list_personalities(request):
+        personalities_dir = Path.cwd() / "Personalities"
+        personalities_dir.mkdir(exist_ok=True)
+        personalities = []
+        for f in sorted(personalities_dir.glob("*.json")):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                data.pop("embeddingData", None)
+                personalities.append(data)
+            except Exception as e:
+                logger.warning(f"Failed to read personality {f}: {e}")
+        return web.json_response(personalities)
+
+    async def handle_save_personality(request):
+        personalities_dir = Path.cwd() / "Personalities"
+        personalities_dir.mkdir(exist_ok=True)
+        try:
+            data = await request.json()
+            pid = data.get("id")
+            if not pid:
+                return web.json_response({"error": "missing id"}, status=400)
+            embedding_filename = data.get("embedding", "")
+            if embedding_filename and embedding_filename.endswith(".pt") and voice_prompt_dir is not None:
+                pt_path = os.path.join(voice_prompt_dir, embedding_filename)
+                if os.path.exists(pt_path):
+                    with open(pt_path, "rb") as f:
+                        pt_bytes = f.read()
+                    data["embeddingData"] = base64.b64encode(pt_bytes).decode("ascii")
+                    logger.info(f"Inlined embedding data from {pt_path} ({len(pt_bytes)} bytes)")
+            new_filename = ServerState._personality_filename(data.get("name", ""), pid)
+            old_file = ServerState._find_personality_file(personalities_dir, pid)
+            if old_file and old_file.name != new_filename:
+                old_file.unlink()
+            filepath = personalities_dir / new_filename
+            filepath.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            return web.json_response({"status": "ok"})
+        except Exception as e:
+            logger.error(f"Error saving personality: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_delete_personality(request):
+        personalities_dir = Path.cwd() / "Personalities"
+        pid = request.match_info.get("id")
+        if not pid:
+            return web.json_response({"error": "missing id"}, status=400)
+        filepath = ServerState._find_personality_file(personalities_dir, pid)
+        if filepath and filepath.exists():
+            filepath.unlink()
+            return web.json_response({"status": "ok"})
+        return web.json_response({"error": "not found"}, status=404)
+
+    async def handle_list_voices(request):
+        try:
+            voices = VoiceDiscovery.list_voices()
+            return web.json_response({'voices': voices, 'count': len(voices)})
+        except Exception as e:
+            logger.error(f"Error listing voices: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    # --- Settings (persisted to Settings/settings.json) ---
+
+    settings_dir = Path.cwd() / "Settings"
+    settings_dir.mkdir(exist_ok=True)
+    settings_file = settings_dir / "settings.json"
+
+    async def handle_get_settings(request):
+        if settings_file.exists():
+            try:
+                data = json.loads(settings_file.read_text(encoding="utf-8"))
+                return web.json_response(data)
+            except Exception:
+                pass
+        return web.json_response({"moshiWeightsPath": "", "mimiWeightsPath": "", "textEncoderPath": ""})
+
+    def _clean_path(p: str) -> str:
+        """Strip whitespace and surrounding quotes from a user-entered path."""
+        return p.strip().strip("\"'")
+
+    async def handle_save_settings(request):
+        try:
+            data = await request.json()
+            for key in ("moshiWeightsPath", "mimiWeightsPath", "textEncoderPath"):
+                if key in data and isinstance(data[key], str):
+                    data[key] = _clean_path(data[key])
+            settings_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            return web.json_response({"status": "ok"})
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    # --- Status endpoint so the frontend knows when models are ready ---
+
+    async def handle_status(request):
+        return web.json_response({
+            "ready": loading_state["ready"],
+            "loading": loading_state["loading"],
+            "status": loading_state["status"],
+        })
+
+    # --- Wrappers for model-dependent handlers ---
+
+    async def handle_chat(request):
+        if not loading_state["ready"]:
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            await ws.close(message=b"Models are still loading")
+            return ws
+        return await loading_state["state"].handle_chat(request)
+
+    async def handle_generate_embedding(request):
+        if not loading_state["ready"]:
+            return web.json_response({"error": "Models are still loading"}, status=503)
+        return await loading_state["state"].handle_generate_embedding(request)
+
+    async def handle_test_embedding(request):
+        if not loading_state["ready"]:
+            return web.json_response({"error": "Models are still loading"}, status=503)
+        return await loading_state["state"].handle_test_embedding(request)
+
+    # --- Background model loading task (triggered by POST /api/load-models) ---
+
+    async def load_models_task(mimi_path: str, text_encoder_path: str, moshi_path: str):
+        loading_state["loading"] = True
+        try:
+            def _load_all():
+                loading_state["status"] = "Downloading config..."
+                hf_hub_download(hf_repo, "config.json")
+
+                loading_state["status"] = "Loading Mimi..."
+                logger.info(f"loading mimi from {mimi_path}")
+                mimi = loaders.get_mimi(mimi_path, device)
+                logger.info("mimi loaded")
+
+                loading_state["status"] = "Loading tokenizer..."
+                logger.info(f"loading tokenizer from {text_encoder_path}")
+                text_tokenizer = sentencepiece.SentencePieceProcessor(text_encoder_path)  # type: ignore
+                logger.info("tokenizer loaded")
+
+                loading_state["status"] = "Loading Moshi..."
+                logger.info(f"loading moshi from {moshi_path}")
+                lm = loaders.get_moshi_lm(moshi_path, device=device, cpu_offload=cpu_offload)
+                lm.eval()
+                logger.info("moshi loaded")
+
+                loading_state["status"] = "Warming up..."
+                logger.info("warming up the model")
+                state = ServerState(
+                    mimi=mimi,
+                    text_tokenizer=text_tokenizer,
+                    lm=lm,
+                    device=device,
+                    voice_prompt_dir=voice_prompt_dir,
+                    save_voice_prompt_embeddings=False,
+                )
+                state.warmup()
+                return state
+
+            state = await asyncio.to_thread(_load_all)
+            loading_state["state"] = state
+            loading_state["ready"] = True
+            loading_state["status"] = "Ready"
+            logger.info("All models loaded and warmed up - ready for connections")
+        except Exception as e:
+            loading_state["status"] = f"Error: {e}"
+            logger.error(f"Failed to load models: {e}")
+        finally:
+            loading_state["loading"] = False
+
+    async def handle_load_models(request):
+        if loading_state["loading"]:
+            return web.json_response({"error": "Models are already loading"}, status=409)
+        if loading_state["ready"]:
+            return web.json_response({"status": "already loaded", "ready": True})
+
+        data = await request.json()
+        moshi_path = _clean_path(data.get("moshiWeightsPath", ""))
+        mimi_path = _clean_path(data.get("mimiWeightsPath", ""))
+        text_encoder_path = _clean_path(data.get("textEncoderPath", ""))
+
+        if not moshi_path or not mimi_path or not text_encoder_path:
+            return web.json_response({"error": "All three model paths are required"}, status=400)
+
+        asyncio.create_task(load_models_task(mimi_path, text_encoder_path, moshi_path))
+        return web.json_response({"status": "loading started"})
+
+    # --- Create app and register routes ---
+
     app = web.Application()
 
-    # Register API routes FIRST before static catch-all
     async def test_endpoint(request):
         return web.json_response({"status": "ok", "test": True})
 
     app.router.add_get("/api/test", test_endpoint)
-    app.router.add_get("/api/chat", state.handle_chat)
-    app.router.add_get("/api/voices", state.handle_list_voices)
-    app.router.add_get("/api/personalities", state.handle_list_personalities)
-    app.router.add_post("/api/personalities", state.handle_save_personality)
-    app.router.add_delete("/api/personalities/{id}", state.handle_delete_personality)
+    app.router.add_get("/api/status", handle_status)
+    app.router.add_get("/api/settings", handle_get_settings)
+    app.router.add_post("/api/settings", handle_save_settings)
+    app.router.add_post("/api/load-models", handle_load_models)
+    app.router.add_get("/api/chat", handle_chat)
+    app.router.add_get("/api/voices", handle_list_voices)
+    app.router.add_get("/api/personalities", handle_list_personalities)
+    app.router.add_post("/api/personalities", handle_save_personality)
+    app.router.add_delete("/api/personalities/{id}", handle_delete_personality)
+    app.router.add_post("/api/generate-embedding", handle_generate_embedding)
+    app.router.add_post("/api/test-embedding", handle_test_embedding)
 
-    # Debug: log registered routes
-    logger.info(f"Registered routes so far: {[r.resource.canonical for r in app.router.routes()]}")
+    logger.info(f"Registered routes: {[r.resource.canonical for r in app.router.routes()]}")
 
     # Register static routes AFTER API routes
     if static_path is not None:
@@ -620,6 +903,22 @@ def main():
     if setup_tunnel is not None:
         tunnel = setup_tunnel('localhost', args.port, tunnel_token, None)
         logger.info(f"Tunnel started, if executing on a remote GPU, you can use {tunnel}.")
+    # Suppress harmless ConnectionResetError from Windows ProactorEventLoop
+    # when WebSocket clients disconnect abruptly.
+    if sys.platform == "win32":
+        loop = asyncio.new_event_loop()
+        _default_handler = loop.get_exception_handler()
+        def _ignore_connection_reset(loop, context):
+            exc = context.get("exception")
+            if isinstance(exc, ConnectionResetError):
+                return
+            if _default_handler:
+                _default_handler(loop, context)
+            else:
+                loop.default_exception_handler(context)
+        loop.set_exception_handler(_ignore_connection_reset)
+        asyncio.set_event_loop(loop)
+
     web.run_app(app, port=args.port, ssl_context=ssl_context)
 
 

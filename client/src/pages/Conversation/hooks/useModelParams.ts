@@ -21,6 +21,8 @@ export type ModelParamsValues = {
   repetitionPenaltyContext: number,
   repetitionPenalty: number,
   textPrompt: string;
+  additionalText: string;
+  personalityId: string;
   voicePrompt: string;
   randomSeed: number;
 };
@@ -37,11 +39,15 @@ export const useModelParams = (params?:useModelParamsArgs) => {
   const [repetitionPenalty, setRepetitionPenaltyBase] = useState(params?.repetitionPenalty || DEFAULT_REPETITION_PENALTY);
   const [repetitionPenaltyContext, setRepetitionPenaltyContextBase] = useState(params?.repetitionPenaltyContext || DEFAULT_REPETITION_PENALTY_CONTEXT);
   const [textPrompt, setTextPromptBase] = useState(params?.textPrompt || DEFAULT_TEXT_PROMPT);
+  const [additionalText, setAdditionalTextBase] = useState(params?.additionalText || "");
+  const [personalityId, setPersonalityIdBase] = useState(params?.personalityId || "");
   const [voicePrompt, setVoicePromptBase] = useState(params?.voicePrompt || DEFAULT_VOICE_PROMPT);
   const [randomSeed, setRandomSeedBase] = useLocalStorage('randomSeed', params?.randomSeed || DEFAULT_RANDOM_SEED);
 
   // Sync internal state when parent props change (e.g. Queue → Conversation)
   useEffect(() => { if (params?.textPrompt !== undefined) setTextPromptBase(params.textPrompt); }, [params?.textPrompt]);
+  useEffect(() => { if (params?.additionalText !== undefined) setAdditionalTextBase(params.additionalText); }, [params?.additionalText]);
+  useEffect(() => { if (params?.personalityId !== undefined) setPersonalityIdBase(params.personalityId); }, [params?.personalityId]);
   useEffect(() => { if (params?.voicePrompt !== undefined) setVoicePromptBase(params.voicePrompt); }, [params?.voicePrompt]);
   useEffect(() => { if (params?.textTemperature !== undefined) setTextTemperatureBase(params.textTemperature); }, [params?.textTemperature]);
   useEffect(() => { if (params?.textTopk !== undefined) setTextTopkBase(params.textTopk); }, [params?.textTopk]);
@@ -75,6 +81,8 @@ export const useModelParams = (params?:useModelParamsArgs) => {
     setRepetitionPenaltyBase(params.repetitionPenalty);
     setRepetitionPenaltyContextBase(params.repetitionPenaltyContext);
     setTextPromptBase(params.textPrompt);
+    setAdditionalTextBase(params.additionalText);
+    setPersonalityIdBase(params.personalityId);
     setVoicePromptBase(params.voicePrompt);
     setRandomSeedBase(params.randomSeed);
   }, [
@@ -128,6 +136,12 @@ export const useModelParams = (params?:useModelParamsArgs) => {
   const setTextPrompt = useCallback((value: string) => {
     setTextPromptBase(value);
   }, []);
+  const setAdditionalText = useCallback((value: string) => {
+    setAdditionalTextBase(value);
+  }, []);
+  const setPersonalityId = useCallback((value: string) => {
+    setPersonalityIdBase(value);
+  }, []);
   const setVoicePrompt = useCallback((value: string) => {
     setVoicePromptBase(value);
   }, []);
@@ -152,6 +166,10 @@ export const useModelParams = (params?:useModelParamsArgs) => {
     setRepetitionPenaltyContext,
     setTextPrompt,
     textPrompt,
+    setAdditionalText,
+    additionalText,
+    setPersonalityId,
+    personalityId,
     setVoicePrompt,
     voicePrompt,
     resetParams,
