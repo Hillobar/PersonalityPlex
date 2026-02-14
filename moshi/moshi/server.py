@@ -133,37 +133,36 @@ class ServerState:
         peer_port = request.transport.get_extra_info("peername")[1]  # Port
         clog.log("info", f"Incoming connection from {peer}:{peer_port}")
 
-        # Load voice prompt: prefer inline embedding data from personality JSON
+        # Load all conversation params from the personality JSON file
         personality_id = request.query.get("personality_id", "")
-        voice_prompt_filename = request.query.get("voice_prompt", "")
-        embedding_loaded = False
+        if not personality_id:
+            clog.log("error", "No personality_id provided, closing connection")
+            await ws.close(message=b"personality_id is required")
+            return ws
 
-        if personality_id:
-            cache_key = f"personality:{personality_id}"
-            personalities_dir = Path.cwd() / "Personalities"
-            personality_file = self._find_personality_file(personalities_dir, personality_id)
-            if personality_file and personality_file.exists():
-                personality_data = json.loads(personality_file.read_text(encoding="utf-8"))
-                embedding_data_b64 = personality_data.get("embeddingData", "")
-                if embedding_data_b64:
-                    if self.lm_gen.voice_prompt != cache_key:
-                        self.lm_gen.load_voice_prompt_embeddings_from_data(embedding_data_b64, cache_key)
-                        logger.info(f"Loaded inline embedding for personality {personality_id}")
-                    embedding_loaded = True
+        personalities_dir = Path.cwd() / "Personalities"
+        personality_file = self._find_personality_file(personalities_dir, personality_id)
+        if not personality_file or not personality_file.exists():
+            clog.log("error", f"Personality file not found for id {personality_id}")
+            await ws.close(message=b"Personality not found")
+            return ws
 
-        if not embedding_loaded and voice_prompt_filename and self.voice_prompt_dir is not None:
-            voice_prompt_path = os.path.join(self.voice_prompt_dir, voice_prompt_filename)
-            if not os.path.exists(voice_prompt_path):
-                raise FileNotFoundError(
-                    f"Requested voice prompt '{voice_prompt_filename}' not found in '{self.voice_prompt_dir}'"
-                )
-            if self.lm_gen.voice_prompt != voice_prompt_path:
-                if voice_prompt_path.endswith('.pt'):
-                    self.lm_gen.load_voice_prompt_embeddings(voice_prompt_path)
-                else:
-                    self.lm_gen.load_voice_prompt(voice_prompt_path)
-        text_prompt = request.query.get("text_prompt", "")
-        additional_text = request.query.get("additional_text", "")
+        personality_data = json.loads(personality_file.read_text(encoding="utf-8"))
+
+        # Voice embedding: load from inline embeddingData stored in the personality
+        embedding_data_b64 = personality_data.get("embeddingData", "")
+        cache_key = f"personality:{personality_id}"
+
+        if embedding_data_b64:
+            if self.lm_gen.voice_prompt != cache_key:
+                self.lm_gen.load_voice_prompt_embeddings_from_data(embedding_data_b64, cache_key)
+                logger.info(f"Loaded inline embedding for personality {personality_id}")
+        else:
+            clog.log("warning", f"Personality {personality_id} has no embeddingData")
+
+        # Text prompt
+        text_prompt = personality_data.get("description", "")
+        additional_text = personality_data.get("additionalText", "")
         if text_prompt:
             tokens = self.text_tokenizer.encode(wrap_with_system_tags(text_prompt))
             if additional_text:
@@ -171,7 +170,16 @@ class ServerState:
             self.lm_gen.text_prompt_tokens = tokens
         else:
             self.lm_gen.text_prompt_tokens = None
-        seed = int(request.query["seed"]) if "seed" in request.query else None
+
+        # Sampling params
+        self.lm_gen.temp_text = float(personality_data.get("textTemperature", 0.7))
+        self.lm_gen.top_k_text = max(1, int(personality_data.get("textTopk", 25)))
+        self.lm_gen.temp = float(personality_data.get("audioTemperature", 0.8))
+        self.lm_gen.top_k = max(1, int(personality_data.get("audioTopk", 250)))
+
+        # Seed
+        seed_value = personality_data.get("seed", -1)
+        seed = int(seed_value) if seed_value is not None else None
 
         async def recv_loop():
             nonlocal close
@@ -198,25 +206,6 @@ class ServerState:
                     if kind == 1:  # audio
                         payload = message[1:]
                         opus_reader.append_bytes(payload)
-                    elif kind == 4:  # metadata (param update)
-                        try:
-                            payload = message[1:]
-                            params = json.loads(payload.decode("utf-8"))
-                            if "text_temperature" in params:
-                                self.lm_gen.temp_text = float(params["text_temperature"])
-                            if "text_topk" in params:
-                                self.lm_gen.top_k_text = max(1, int(params["text_topk"]))
-                            if "audio_temperature" in params:
-                                self.lm_gen.temp = float(params["audio_temperature"])
-                                self.lm_gen._stop_streaming()
-                                self.lm_gen.streaming_forever(1)
-                            if "audio_topk" in params:
-                                self.lm_gen.top_k = max(1, int(params["audio_topk"]))
-                                self.lm_gen._stop_streaming()
-                                self.lm_gen.streaming_forever(1)
-                            clog.log("info", f"updated params: {params}")
-                        except Exception as e:
-                            clog.log("error", f"failed to parse metadata: {e}")
                     else:
                         clog.log("warning", f"unknown message kind {kind}")
             finally:
@@ -268,10 +257,11 @@ class ServerState:
                     await ws.send_bytes(b"\x01" + msg)
 
         clog.log("info", "accepted connection")
-        if len(request.query["text_prompt"]) > 0:
-            clog.log("info", f"text prompt: {request.query['text_prompt']}")
-        if voice_prompt_filename:
-            clog.log("info", f"voice prompt: {voice_prompt_filename} (personality: {personality_id or 'none'})")
+        clog.log("info", f"personality: {personality_data.get('name', personality_id)}")
+        if text_prompt:
+            clog.log("info", f"text prompt: {text_prompt}")
+        if embedding_data_b64:
+            clog.log("info", f"voice embedding: loaded from personality file")
         close = False
         async with self.lock:
             if seed is not None and seed != -1:
@@ -695,16 +685,31 @@ def main():
             pid = data.get("id")
             if not pid:
                 return web.json_response({"error": "missing id"}, status=400)
+
+            # Check if embedding changed compared to existing personality
             embedding_filename = data.get("embedding", "")
-            if embedding_filename and embedding_filename.endswith(".pt") and voice_prompt_dir is not None:
-                pt_path = os.path.join(voice_prompt_dir, embedding_filename)
-                if os.path.exists(pt_path):
-                    with open(pt_path, "rb") as f:
-                        pt_bytes = f.read()
-                    data["embeddingData"] = base64.b64encode(pt_bytes).decode("ascii")
-                    logger.info(f"Inlined embedding data from {pt_path} ({len(pt_bytes)} bytes)")
-            new_filename = ServerState._personality_filename(data.get("name", ""), pid)
             old_file = ServerState._find_personality_file(personalities_dir, pid)
+            old_embedding = ""
+            if old_file and old_file.exists():
+                old_data = json.loads(old_file.read_text(encoding="utf-8"))
+                old_embedding = old_data.get("embedding", "")
+
+            old_embedding_data = old_data.get("embeddingData", "") if old_file and old_file.exists() else ""
+
+            if embedding_filename != old_embedding or not old_embedding_data:
+                # Embedding changed or no existing embeddingData — read the .pt file and inline it
+                if embedding_filename and embedding_filename.endswith(".pt") and voice_prompt_dir is not None:
+                    pt_path = os.path.join(voice_prompt_dir, embedding_filename)
+                    if os.path.exists(pt_path):
+                        with open(pt_path, "rb") as f:
+                            pt_bytes = f.read()
+                        data["embeddingData"] = base64.b64encode(pt_bytes).decode("ascii")
+                        logger.info(f"Inlined embedding data from {pt_path} ({len(pt_bytes)} bytes)")
+            else:
+                # Embedding unchanged — preserve existing embeddingData
+                data["embeddingData"] = old_embedding_data
+
+            new_filename = ServerState._personality_filename(data.get("name", ""), pid)
             if old_file and old_file.name != new_filename:
                 old_file.unlink()
             filepath = personalities_dir / new_filename

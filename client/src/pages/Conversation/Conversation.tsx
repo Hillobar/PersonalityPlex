@@ -24,10 +24,10 @@ type ConversationProps = {
 
 const buildURL = ({
   workerAddr,
-  params,
+  personalityId,
 }: {
   workerAddr: string;
-  params: ModelParamsValues;
+  personalityId: string;
 }) => {
   const newWorkerAddr = useMemo(() => {
     if (workerAddr == "same" || workerAddr == "") {
@@ -39,13 +39,9 @@ const buildURL = ({
   }, [workerAddr]);
   const wsProtocol = (window.location.protocol === 'https:') ? 'wss' : 'ws';
   const url = new URL(`${wsProtocol}://${newWorkerAddr}/api/chat`);
-  url.searchParams.append("text_prompt", params.textPrompt.toString());
-  url.searchParams.append("additional_text", params.additionalText.toString());
-  if (params.personalityId) {
-    url.searchParams.append("personality_id", params.personalityId);
+  if (personalityId) {
+    url.searchParams.append("personality_id", personalityId);
   }
-  url.searchParams.append("voice_prompt", params.voicePrompt.toString());
-  url.searchParams.append("seed", params.randomSeed.toString());
   console.log(url.toString());
   return url.toString();
 };
@@ -88,7 +84,7 @@ export const Conversation:FC<ConversationProps> = ({
   const actualAudioPlayed = useRef<number>(0);
   const WSURL = buildURL({
     workerAddr,
-    params: modelParams,
+    personalityId: modelParams.personalityId,
   });
 
   const onDisconnect = useCallback(() => {

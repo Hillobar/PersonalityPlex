@@ -912,33 +912,17 @@ export const Queue:FC = () => {
   }, [audioContext, worklet]);
 
   const startConnection = useCallback(async() => {
-      // Apply selected personality's description and embedding as text/voice prompts
-      if (selectedPersonalityId) {
-        const personality = personalities.find((p) => p.id === selectedPersonalityId);
-        if (personality) {
-          modelParams.setPersonalityId(personality.id);
-          if (personality.description) {
-            modelParams.setTextPrompt(personality.description);
-          }
-          modelParams.setAdditionalText(personality.additionalText || "");
-          if (personality.embedding) {
-            modelParams.setVoicePrompt(personality.embedding);
-          }
-          modelParams.setTextTemperature(personality.textTemperature);
-          modelParams.setTextTopk(personality.textTopk);
-          modelParams.setAudioTemperature(personality.audioTemperature);
-          modelParams.setAudioTopk(personality.audioTopk);
-          modelParams.setRandomSeed(personality.seed ?? DEFAULT_RANDOM_SEED);
-        }
-      } else {
-        modelParams.setPersonalityId("");
+      if (!selectedPersonalityId) {
+        alert("Please select a personality before connecting.");
+        return;
       }
+      modelParams.setPersonalityId(selectedPersonalityId);
       await startProcessor();
       const hasAccess = await getMicrophoneAccess();
       if (hasAccess) {
         setIsConnected(true);
       }
-  }, [startProcessor, getMicrophoneAccess, selectedPersonalityId, personalities, modelParams]);
+  }, [startProcessor, getMicrophoneAccess, selectedPersonalityId, modelParams]);
 
   const closeModal = useCallback(() => {
     setShowModal(false);

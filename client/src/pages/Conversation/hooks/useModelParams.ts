@@ -53,6 +53,7 @@ export const useModelParams = (params?:useModelParamsArgs) => {
   useEffect(() => { if (params?.textTopk !== undefined) setTextTopkBase(params.textTopk); }, [params?.textTopk]);
   useEffect(() => { if (params?.audioTemperature !== undefined) setAudioTemperatureBase(params.audioTemperature); }, [params?.audioTemperature]);
   useEffect(() => { if (params?.audioTopk !== undefined) setAudioTopkBase(params.audioTopk); }, [params?.audioTopk]);
+  useEffect(() => { if (params?.randomSeed !== undefined) setRandomSeedBase(params.randomSeed); }, [params?.randomSeed]);
 
   const resetParams = useCallback(() => {
     setTextTemperatureBase(DEFAULT_TEXT_TEMPERATURE);
