@@ -1,6 +1,6 @@
 # PersonalityPlex: Chat with Managed Personalities
 
-PersonalityPlex build upon PersonaPlex to allow you to create (and share) Personalities that are used in PersonaPlex. PersonalityPlex provides the following features:
+PersonalityPlex builds upon PersonaPlex to allow you to create (and share) Personalities that are used in PersonaPlex. PersonalityPlex provides the following features:
 
 - Voice cloning from ~10s audio clips
 - Create a library of Personalities
