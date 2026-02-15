@@ -39,8 +39,11 @@ pip install -r requirements.txt
 # Install PyTorch with CUDA 13.0+ support FIRST (required for Blackwell)
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
 
-# Then install the remaining dependencies
+# Install the remaining dependencies
 pip install -r requirements.txt
+
+#Then install Triton
+pip install triton-windows
 ```
 
 ## Step 4: Install the Moshi Package
