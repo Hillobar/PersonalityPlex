@@ -8,29 +8,32 @@ PersonalityPlex builds upon PersonaPlex to allow you to create (and share) Perso
 - Make edits to you Personalities for better behavior
 - Clean UI
 
-<p align="center">
-  <img width="1030" height="893" alt="Screenshot 2026-02-14 110657" src="https://github.com/user-attachments/assets/7d498734-08dc-4dae-835d-b77824691de1" />
-  <br>
-  <em>Main Screen</em>
-</p>
-
-<p align="center">
- <img width="1031" height="894" alt="Screenshot 2026-02-14 110712" src="https://github.com/user-attachments/assets/bca39bbb-0835-4be1-9085-add0bb738c96" />
-  <br>
-  <em>Personality Screen</em>
-</p>
-
-<p align="center">
-  <img width="1031" height="893" alt="Screenshot 2026-02-14 110743" src="https://github.com/user-attachments/assets/03ff9de6-c4da-4006-9279-60a54e0778ab" />
-  <br>
-  <em>Talk to your Personality</em>
-</p>
-
-<p align="center">
-  <img width="1032" height="895" alt="Screenshot 2026-02-14 111218" src="https://github.com/user-attachments/assets/45e272c7-e3ef-4e96-adc6-9ccb38a7d506" />
-  <br>
-  <em>Clone a Voice</em>
-</p>
+<table>
+  <tr>
+    <td>
+      <img width="1030" height="893" alt="Screenshot 2026-02-14 110657" src="https://github.com/user-attachments/assets/7d498734-08dc-4dae-835d-b77824691de1" />
+      <br>
+      <em>Main Screen</em>
+    </td>
+    <td>
+      <img width="1031" height="894" alt="Screenshot 2026-02-14 110712" src="https://github.com/user-attachments/assets/bca39bbb-0835-4be1-9085-add0bb738c96" />
+      <br>
+      <em>Personality Screen</em>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <img width="1032" height="895" alt="Screenshot 2026-02-14 111218" src="https://github.com/user-attachments/assets/45e272c7-e3ef-4e96-adc6-9ccb38a7d506" />
+      <br>
+      <em>Clone a Voice</em>
+    </td>
+    <td>
+      <img width="1031" height="893" alt="Screenshot 2026-02-14 110743" src="https://github.com/user-attachments/assets/03ff9de6-c4da-4006-9279-60a54e0778ab" />
+      <br>
+      <em>Talk to your Personality</em>
+    </td>
+  </tr>
+</table>
 
 ### Installation
 
