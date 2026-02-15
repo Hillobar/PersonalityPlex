@@ -69,7 +69,7 @@ See the [Full Installation Guide (venv)](INSTALL.md) to get up and running.
    - **Embedding** - select the voice embedding to use
 3. Adjust generation parameters if desired (text/audio temperature, topK, seed)
 4. Click **Save**
-5. The Personality will be stored in the `./Personalities` folder
+5. The Personality will be stored in the `./Personalities` folder (an exmple Personality for Pam Beasley can be found on the [Release Page](https://github.com/Hillobar/PersonalityPlex/releases/tag/Release_1.0))
 
 ### Talking to a Personality
 
