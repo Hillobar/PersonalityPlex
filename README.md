@@ -33,9 +33,44 @@ PersonalityPlex builds upon PersonaPlex to allow you to create (and share) Perso
 </p>
 
 ## Usage
-- to do
+
+### First-Time Setup
+
+1. Open your browser and go to **https://localhost:8998**
+2. Click **Settings** at the bottom of the left sidebar
+3. Enter the paths for the three required models:
+   - **Moshi Weights** - path to the language model checkpoint
+   - **Mimi Weights** - path to the audio codec model
+   - **Text Encoder** - path to the tokenizer model
+4. Click **Save**, then click **Load Models** and wait for loading to complete (the status indicator turns green when ready)
+
+### Creating a Voice Embedding
+
+1. In the left sidebar, click the dropdown menu and select **Create a voice embedding**
+2. Click **Select audio file** and choose a voice sample (~10 seconds or more)
+3. Enter a name for the embedding and click **Generate Embedding**
+4. Optionally, type some test text and click **Test Embedding** to hear a preview of the cloned voice
+
+### Creating a Personality
+
+1. In the left sidebar, click the dropdown menu and select **Create new personality**
+2. Fill in the personality details:
+   - **Avatar** - click to upload a custom image
+   - **Name** - give your personality a name
+   - **Role (System Prompt)** - describe how the personality should behave (e.g. "You are a pirate captain who loves telling sea stories")
+   - **Embedding** - select the voice embedding to use
+3. Adjust generation parameters if desired (text/audio temperature, topK, seed)
+4. Click **Save**
+
+### Talking to a Personality
+
+1. Click a personality in the left sidebar to select it
+2. Click **Talk to your Personality**
+3. Grant microphone permission when your browser prompts you
+4. Start speaking — the personality responds in real-time with audio and text
+5. The conversation is full-duplex, meaning you can speak and listen at the same time
+6. Click **Disconnect** when you're done
 
 ### Installation
 
-See the [Quick Start Guide](QUICKSTART.md) to get up and running, or the [Full Installation Guide (venv)](INSTALL.md) for detailed step-by-step instructions using Python's virtual environment.
-
+See the [Full Installation Guide (venv)](INSTALL.md) to get up and running.

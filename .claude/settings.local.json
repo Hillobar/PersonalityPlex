@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc:*)",
-      "Bash(npx vite build)"
+      "Bash(npx vite build)",
+      "Bash(ls -la \"d:\\\\SD\\\\Generation\\\\personaplex-blackwell\\\\client\\\\src\\\\pages\\\\Conversation\\\\hooks\"\" | grep -i \".ts \")"
     ]
   }
 }

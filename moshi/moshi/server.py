@@ -38,7 +38,7 @@ from typing import Literal, Optional
 
 import aiohttp
 from aiohttp import web
-from huggingface_hub import hf_hub_download
+# from huggingface_hub import hf_hub_download
 import numpy as np
 import sentencepiece
 import sphn
@@ -497,19 +497,19 @@ def _get_voice_prompt_dir(voice_prompt_dir: Optional[str], hf_repo: str) -> Opti
     if voice_prompt_dir is not None:
         return voice_prompt_dir
 
-    logger.info("retrieving voice prompts")
+    # logger.info("retrieving voice prompts")
 
-    voices_tgz = hf_hub_download(hf_repo, "voices.tgz")
-    voices_tgz = Path(voices_tgz)
-    voices_dir = voices_tgz.parent / "voices"
+    # voices_tgz = hf_hub_download(hf_repo, "voices.tgz")
+    # voices_tgz = Path(voices_tgz)
+    # voices_dir = voices_tgz.parent / "voices"
 
-    if not voices_dir.exists():
-        logger.info(f"extracting {voices_tgz} to {voices_dir}")
-        with tarfile.open(voices_tgz, "r:gz") as tar:
-            tar.extractall(path=voices_tgz.parent)
+    # if not voices_dir.exists():
+    #     logger.info(f"extracting {voices_tgz} to {voices_dir}")
+    #     with tarfile.open(voices_tgz, "r:gz") as tar:
+    #         tar.extractall(path=voices_tgz.parent)
 
-    if not voices_dir.exists():
-        raise RuntimeError("voices.tgz did not contain a 'voices/' directory")
+    # if not voices_dir.exists():
+    #     raise RuntimeError("voices.tgz did not contain a 'voices/' directory")
 
     return str(voices_dir)
 
@@ -558,15 +558,6 @@ def _get_static_path(static: Optional[str]) -> Optional[str]:
             logger.warning(f"Could not check for custom UI: {e}. Falling back to default.")
             # Fall through to HuggingFace download
 
-        # Fall back to HuggingFace default UI
-        logger.info("retrieving the static content")
-        dist_tgz = hf_hub_download("nvidia/personaplex-7b-v1", "dist.tgz")
-        dist_tgz = Path(dist_tgz)
-        dist = dist_tgz.parent / "dist"
-        if not dist.exists():
-            with tarfile.open(dist_tgz, "r:gz") as tar:
-                tar.extractall(path=dist_tgz.parent)
-        return str(dist)
     elif static != "none":
         # When set to the "none" string, we don't serve any static content.
         return static
@@ -804,9 +795,6 @@ def main():
         loading_state["loading"] = True
         try:
             def _load_all():
-                loading_state["status"] = "Downloading config..."
-                hf_hub_download(hf_repo, "config.json")
-
                 loading_state["status"] = "Loading Mimi..."
                 logger.info(f"loading mimi from {mimi_path}")
                 mimi = loaders.get_mimi(mimi_path, device)
