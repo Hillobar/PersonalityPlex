@@ -42,7 +42,7 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 # Install the remaining dependencies
 pip install -r requirements.txt
 
-#Then install Triton
+# Then install Triton
 pip install triton-windows
 ```
 
