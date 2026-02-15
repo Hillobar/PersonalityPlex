@@ -36,5 +36,6 @@ PersonalityPlex builds upon PersonaPlex to allow you to create (and share) Perso
 - to do
 
 ### Installation
-- to do
+
+See the [Quick Start Guide](QUICKSTART.md) to get up and running, or the [Full Installation Guide (venv)](INSTALL.md) for detailed step-by-step instructions using Python's virtual environment.
 
