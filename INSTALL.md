@@ -56,9 +56,9 @@ This installs the `moshi` package in editable/development mode so it can be impo
 ## Step 5: Download the Model Files
 
 Download the following files from the [PersonaPlex HuggingFace repo](https://huggingface.co/nvidia/personaplex-7b-v1/tree/main):
--[Moshi Model (model.safetensors)](https://huggingface.co/nvidia/personaplex-7b-v1/blob/main/model.safetensors)
--[Mimi Model (tokenizer-e351c8d8-checkpoint125.safetensors)](https://huggingface.co/nvidia/personaplex-7b-v1/blob/main/tokenizer-e351c8d8-checkpoint125.safetensors)
--[Text Tokenizer Model (tokenizer_spm_32k_3.model)](https://huggingface.co/nvidia/personaplex-7b-v1/blob/main/tokenizer_spm_32k_3.model)
+- [Moshi Model (model.safetensors)](https://huggingface.co/nvidia/personaplex-7b-v1/blob/main/model.safetensors)
+- [Mimi Model (tokenizer-e351c8d8-checkpoint125.safetensors)](https://huggingface.co/nvidia/personaplex-7b-v1/blob/main/tokenizer-e351c8d8-checkpoint125.safetensors)
+- [Text Tokenizer Model (tokenizer_spm_32k_3.model)](https://huggingface.co/nvidia/personaplex-7b-v1/blob/main/tokenizer_spm_32k_3.model)
 
 Place these wherever you like to store model files. You will link to these within PersonalityPlex.
 
