@@ -32,6 +32,10 @@ PersonalityPlex builds upon PersonaPlex to allow you to create (and share) Perso
   <em>Clone a Voice</em>
 </p>
 
+### Installation
+
+See the [Full Installation Guide (venv)](INSTALL.md) to get up and running.
+
 ## Usage
 
 ### First-Time Setup
@@ -42,7 +46,7 @@ PersonalityPlex builds upon PersonaPlex to allow you to create (and share) Perso
    - **Moshi Weights** - path to the language model checkpoint
    - **Mimi Weights** - path to the audio codec model
    - **Text Encoder** - path to the tokenizer model
-4. Click **Save**, then click **Load Models** and wait for loading to complete (the status indicator turns green when ready)
+4. Click **Save**, then wait for loading to complete (the status indicator turns green when ready). This step will be skipped if the paths have already been set.
 
 ### Creating a Voice Embedding
 
@@ -71,6 +75,3 @@ PersonalityPlex builds upon PersonaPlex to allow you to create (and share) Perso
 5. The conversation is full-duplex, meaning you can speak and listen at the same time
 6. Click **Disconnect** when you're done
 
-### Installation
-
-See the [Full Installation Guide (venv)](INSTALL.md) to get up and running.
