@@ -54,6 +54,7 @@ See the [Full Installation Guide (venv)](INSTALL.md) to get up and running.
 2. Click **Select audio file** and choose a voice sample (~10 seconds or more)
 3. Enter a name for the embedding and click **Generate Embedding**
 4. Optionally, type some test text and click **Test Embedding** to hear a preview of the cloned voice
+5. The embedding will be stored in the `./Personalities/Embeddings` folder
 
 ### Creating a Personality
 
@@ -65,6 +66,7 @@ See the [Full Installation Guide (venv)](INSTALL.md) to get up and running.
    - **Embedding** - select the voice embedding to use
 3. Adjust generation parameters if desired (text/audio temperature, topK, seed)
 4. Click **Save**
+5. The Personality will be stored in the `./Personalities` folder
 
 ### Talking to a Personality
 
