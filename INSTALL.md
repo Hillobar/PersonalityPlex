@@ -54,9 +54,18 @@ pip install -e .
 cd ..
 ```
 
+## Step 5: Build the front end
+
+```bash
+cd client
+npm install
+npm build run
+cd ..
+```
+
 This installs the `moshi` package in editable/development mode so it can be imported from anywhere while the venv is active.
 
-## Step 5: Download the Model Files
+## Step 6: Download the Model Files
 
 Download the following files from the [PersonaPlex HuggingFace repo](https://huggingface.co/nvidia/personaplex-7b-v1/tree/main):
 - [Moshi Model (model.safetensors)](https://huggingface.co/nvidia/personaplex-7b-v1/blob/main/model.safetensors)
@@ -65,7 +74,7 @@ Download the following files from the [PersonaPlex HuggingFace repo](https://hug
 
 Place these wherever you like to store model files. You will link to these within PersonalityPlex.
 
-## Step 6: Run the Server
+## Step 7: Run the Server
 
 **Windows (Command Prompt):**
 ```cmd
