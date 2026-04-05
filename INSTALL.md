@@ -59,7 +59,7 @@ cd ..
 ```bash
 cd client
 npm install
-npm build run
+npm run build
 cd ..
 ```
 
